@@ -363,7 +363,7 @@ elif page == "Recurrence":
         input_df = pd.DataFrame([input_data], columns=all_columns)
 
         # Scale Age and rename to age_scaled
-        input_df["age"] = input_df["Age"]  # Add this line to create lowercase 'age' column
+        input_df["age"] = input_df["Age"]
         input_df["age_scaled"] = age_scaler.transform(input_df[["age"]])
 
         # Encode Gender as is_female (1 for Female, 0 for Male)
@@ -375,6 +375,7 @@ elif page == "Recurrence":
             encoded_col = f"{col}_encoded"
             input_df[encoded_col] = label_encoder[col].transform(input_df[col])
 
+        # Define the exact feature order as per your earlier specification
         feature_order = [
             "age_scaled", "is_female", 
             "ACSL3_rnaseq", "ADAM10_rnaseq", "ADM_rnaseq", "AKT2_rnaseq", "ANPEP_rnaseq", "ATIC_rnaseq", 
@@ -414,44 +415,144 @@ elif page == "Recurrence":
             "VEGFA_rnaseq", "VEGFC_rnaseq", "VGF_rnaseq", "ZNF384_rnaseq", 
             "ajcc_pathologic_tumor_stage_encoded", "treatment_outcome_first_course_encoded"
         ]
-        
-        # Create a DataFrame with all columns expected by the feature_scaler
-        # scaling_features = ["age_scaled", "is_female"] + gene_columns + ["ajcc_pathologic_tumor_stage_encoded", "treatment_outcome_first_course_encoded"]
 
+        # Apply feature scaling using the exact feature order
         input_df[feature_order] = feature_scaler.transform(input_df[feature_order])
 
-        # Drop original unencoded columns
+        # Drop unencoded columns
         input_df = input_df.drop(columns=["Age", "age", "Gender", "ajcc_pathologic_tumor_stage", "treatment_outcome_first_course"])
-        # Debugging: Check columns before prediction
-        st.write("Columns in preprocessed DataFrame:", input_df.columns.tolist())
 
+        # --- Tumor Event Prediction ---
+        input_df_tumour = input_df[tumour_event_features]
+        event_prob = tumour_event_model.predict_proba(input_df_tumour)[0]
+        event_pred = np.argmax(event_prob)  # Scalar integer (e.g., 4)
+        event_encoder = label_encoder['new_tumor_event_type']
+
+        # Debug outputs
+        st.write("Tumor event input shape:", input_df_tumour.shape)
+        st.write("Tumor event input columns:", input_df_tumour.columns.tolist())
+        st.write("Event probabilities:", event_prob)
+        st.write("Predicted class index:", event_pred)
+        st.write("Tumor event encoder classes:", event_encoder.classes_)
+
+        # Check if predicted index is valid
+        if event_pred >= len(event_encoder.classes_):
+            st.error(f"Prediction {event_pred} is out of range for classes {event_encoder.classes_}")
+            pred_label = "Unknown (Prediction Error)"
+        else:
+            pred_label = event_encoder.inverse_transform([event_pred])[0]
+            st.write("Decoded prediction:", pred_label)
+
+        class_labels = event_encoder.classes_
+        prob_dict = {str(class_labels[i]): float(prob) for i, prob in enumerate(event_prob)}
+
+        # Clinical notes for tumor events
+        CLINICAL_NOTES = {
+            "No New Tumor": "No evidence of tumor recurrence detected",
+            "Local": "Cancer has returned to the original site",
+            "Regional": "Cancer has spread to nearby lymph nodes or tissues",
+            "Distant": "Cancer has spread to distant organs (Stage IV)",
+            "New Primary": "New distinct cancer type identified",
+            "Unknown": "Recurrence type needs further investigation"
+        }
+
+        # --- PFI Binary Prediction ---
+        input_df_pfi_binary = input_df[pfi_binary_features]
+        pfi_prob = pfi_binary_model.predict_proba(input_df_pfi_binary)[0][1]
+        pfi_pred = "Yes" if pfi_prob > 0.5 else "No"
+
+        # --- PFI Time (CoxPH Survival Curve) ---
+        input_df_coxph = input_df.copy()
+        input_df_coxph["new_tumor_event_type_encoded"] = event_pred  # Assign scalar directly
+        input_df_coxph = input_df_coxph[coxph_features]
+        survival_function = coxph_model.predict_survival_function(input_df_coxph)
+
+        # Calculate key metrics
         try:
-            # Step 1: Predict tumour event type
-            input_df_tumour = input_df[tumour_event_features]
-            event_pred = tumour_event_model.predict(input_df_tumour)
-            event_prob = tumour_event_model.predict_proba(input_df_tumour)[0]
-            st.subheader(f"Predicted Tumour Event Type: {event_pred[0]}")
-            st.write(f"Event Type Probabilities: {dict(zip(tumour_event_model.classes_, event_prob))}")
+            median_survival = survival_function.index[np.where(survival_function.values < 0.5)[0][0]]
+        except IndexError:
+            median_survival = "Not reached"
+        one_year_survival = survival_function.iloc[12, 0] if 12 < len(survival_function) else np.nan
+        two_year_survival = survival_function.iloc[24, 0] if 24 < len(survival_function) else np.nan
 
-            # Step 2: Predict PFI time using CoxPH model
-            input_df_coxph = input_df.copy()
-            input_df_coxph["new_tumor_event_type_encoded"] = event_pred[0]
-            input_df_coxph = input_df_coxph[coxph_features]
-            survival_function = coxph_model.predict_survival_function(input_df_coxph)
-            fig, ax = plt.subplots()
-            survival_function.plot(ax=ax, color="green", linewidth=2)
-            ax.grid(True, linestyle="--", alpha=0.6)
-            ax.set_title("Predicted Progression-Free Interval (PFI) Curve")
-            ax.set_xlabel("Time (months)")
-            ax.set_ylabel("Survival Probability")
+        # Risk Stratification
+        if pfi_prob > 0.75 or (isinstance(median_survival, float) and median_survival < 12):
+            risk_level = "High"
+            risk_color = "#e74c3c"
+        elif pfi_prob > 0.25 or (isinstance(median_survival, float) and median_survival < 24):
+            risk_level = "Medium"
+            risk_color = "#f1c40f"
+        else:
+            risk_level = "Low"
+            risk_color = "#27ae60"
+
+        # --- Output Dashboard ---
+        st.subheader("Clinical Decision Support Dashboard")
+        st.markdown(f"### Patient Risk Profile: <span style='color:{risk_color}'>{risk_level}</span>", unsafe_allow_html=True)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Tumor Event Type", pred_label)
+        with col2:
+            st.metric("Progression within 12 Months", pfi_pred, f"{pfi_prob:.1%}")
+        with col3:
+            st.metric("Median PFI Time", f"{median_survival} months" if isinstance(median_survival, float) else median_survival)
+
+        # Detailed Breakdown
+        st.markdown("---")
+        st.subheader("Detailed Predictions")
+
+        # Tumor Event Breakdown
+        with st.expander("Tumor Event Type Prediction"):
+            st.write(f"**Predicted Event:** {pred_label}")
+            st.write(f"**Clinical Note:** {CLINICAL_NOTES.get(pred_label, 'Consult oncologist for interpretation')}")
+            st.write("**Probability Breakdown:**")
+            for label, prob in prob_dict.items():
+                st.write(f"- {label}: {prob*100:.2f}%")
+
+        # PFI Binary Breakdown
+        with st.expander("Progression-Free Interval (PFI) Binary Prediction"):
+            st.write(f"**Probability of Progression within 12 Months:** {pfi_prob:.1%}")
+            st.write(f"**Clinical Interpretation:** {'High risk of early progression' if pfi_pred == 'Yes' else 'Low risk of early progression'}")
+
+        # Survival Curve
+        with st.expander("Progression-Free Survival Curve"):
+            fig, ax = plt.subplots(figsize=(10, 6))
+            survival_function.plot(ax=ax, color="#2e86c1", linewidth=2.5)
+            ax.axhline(0.5, color='#e74c3c', linestyle='--', alpha=0.7)
+            ax.axvline(12, color='#27ae60', linestyle=':', alpha=0.7)
+            ax.axvline(24, color='#27ae60', linestyle=':', alpha=0.7)
+            ax.grid(True, linestyle='--', alpha=0.3)
+            ax.set_title("Progression-Free Survival Curve", fontsize=14, fontweight='bold')
+            ax.set_xlabel("Time Since Diagnosis (Months)", fontsize=12)
+            ax.set_ylabel("Probability of Remaining Progression-Free", fontsize=12)
+            ax.set_ylim(0, 1)
             st.pyplot(fig)
+            st.write(f"**Median PFI Time:** {median_survival} months" if isinstance(median_survival, float) else "Median PFI not reached")
+            st.write(f"**1-Year PFI Rate:** {one_year_survival:.1%}")
+            st.write(f"**2-Year PFI Rate:** {two_year_survival:.1%}")
 
-            # Step 3: Predict PFI binary outcome
-            input_df_pfi = input_df[pfi_binary_features]
-            pfi_prob = pfi_binary_model.predict_proba(input_df_pfi)[0]
-            pfi_pred = pfi_binary_model.predict(input_df_pfi)[0]
-            st.subheader(f"PFI Occurrence Prediction: {'Yes' if pfi_pred else 'No'}")
-            st.write(f"Probability of PFI: {pfi_prob[1]:.3f}")
+        # Clinical Recommendations
+        st.markdown("---")
+        st.subheader("Clinical Recommendations")
+        if risk_level == "High":
+            st.markdown(f"""
+            - **Immediate Action:** Consider aggressive monitoring or adjuvant therapy due to high recurrence risk.
+            - **Diagnostics:** Order imaging (e.g., PET/CT) and molecular profiling.
+            - **Therapy:** Discuss targeted therapies or clinical trials.
+            """)
+        elif risk_level == "Medium":
+            st.markdown(f"""
+            - **Monitoring:** Schedule follow-ups every 3-6 months with imaging.
+            - **Prevention:** Evaluate maintenance therapy options.
+            - **Consultation:** Review with multidisciplinary team.
+            """)
+        else:
+            st.markdown(f"""
+            - **Routine Care:** Continue standard follow-up every 6-12 months.
+            - **Patient Education:** Reinforce lifestyle modifications.
+            - **Reassess:** Repeat assessment if new symptoms arise.
+            """)
 
-        except Exception as e:
-            st.error(f"Error during prediction: {e}")
+        # Error Handling
+        if any(pd.isna([median_survival, one_year_survival, two_year_survival])):
+            st.warning("Some survival metrics could not be calculated due to limited data range.")
