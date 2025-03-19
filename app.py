@@ -1,36 +1,61 @@
+import os
+import numpy as np
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
+import pydicom
+import torch
+import torch.nn.functional as F
+import tempfile
+import cv2
 import matplotlib.pyplot as plt
 import seaborn as sns
-from lifelines import CoxPHFitter
+from mpl_toolkits.mplot3d import Axes3D
+from skimage import measure
+from glob import glob
+from torchvision.models.video import r2plus1d_18
 from sklearn.preprocessing import MinMaxScaler
+from lifelines import CoxPHFitter
+from models.resnet import resnet50
 
-# Load the saved models and preprocessors with caching
+# ✅ Load Models with Caching
 @st.cache_resource(ttl=3600)
 def load_models():
     cox_model = joblib.load("cox_model.pkl")
-    coxph_model = joblib.load("coxph_model.pkl")
     tumour_event_model = joblib.load("tumor_event_prediction_model_balanced_rf.pkl")
     pfi_binary_model = joblib.load("pfi_ensemble_model.pkl")
     age_scaler = joblib.load("age_scaler.pkl")
     feature_scaler = joblib.load("feature_scaler.pkl")
-    label_encoder = joblib.load("label_encoders.pkl")
-    return cox_model, coxph_model, tumour_event_model, pfi_binary_model, age_scaler, feature_scaler, label_encoder
+    return cox_model, tumour_event_model, pfi_binary_model, age_scaler, feature_scaler
 
-# Load historical patient data
-def load_historical_data():
-    try:
-        return pd.read_csv("historical_patient_data.csv")
-    except FileNotFoundError:
-        st.warning("Historical patient data not found. Upload 'historical_patient_data.csv' to enable risk comparison.")
-        return None
+cox_model, tumour_event_model, pfi_binary_model, age_scaler, feature_scaler = load_models()
 
-# Initialize the app
-cox_model, coxph_model, tumour_event_model, pfi_binary_model, age_scaler, feature_scaler, label_encoder = load_models()
-patients_data = load_historical_data()
+# ✅ Load PyTorch TNM Models
+@st.cache_resource
+def load_pytorch_model(model_path, num_classes):
+    model = resnet50(sample_input_D=64, sample_input_H=128, sample_input_W=128, num_classes=num_classes)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")))
+    model.eval()
+    return model
 
+@st.cache_resource
+def load_r2plus1d_model(model_path, num_classes):
+    model = r2plus1d_18(weights=None)
+    model.fc = torch.nn.Sequential(torch.nn.Dropout(0.7), torch.nn.Linear(model.fc.in_features, num_classes))
+    model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")), strict=False)
+    model.eval()
+    return model
+
+N_model = load_pytorch_model("trained_modelN.pth", num_classes=3)
+M_model = load_pytorch_model("trained_modelM.pth", num_classes=3)
+T_stage_model = load_r2plus1d_model("model_TStage.pth", num_classes=7)
+Tumor_model = load_r2plus1d_model("model_TumorrLocation.pth", num_classes=6)
+
+# ✅ Class Labels
+N_CLASS_LABELS = {0: "N0", 1: "N2", 2: "N1"}
+M_CLASS_LABELS = {0: "M0", 1: "M1b", 2: "M1a"}
+T_STAGE_LABELS = {0: "T3", 1: "T1b", 2: "T2a", 3: "T1a", 4: "Tis", 5: "T2b", 6: "T4"}
+TUMOR_LOCATION_LABELS = {0: 'RUL', 1: 'RML', 2: 'LUL', 3: 'RLL', 4: 'LLL', 5: 'L Lingula'}
 # Sidebar for navigation
 page = st.sidebar.selectbox("Select a page", options=["Prognosis", "Detection", "Complications", "Recurrence"])
 
@@ -169,8 +194,32 @@ if page == "Prognosis":
 
 # --- Detection Page (unchanged) ---
 elif page == "Detection":
-    st.title("Detection")
-    st.write("Content related to disease detection goes here.")
+    st.title("Lung Cancer Staging and Tumor Location Prediction")
+    uploaded_folder = st.file_uploader("Upload DICOM files", accept_multiple_files=True, type=["dcm"])
+    if uploaded_folder:
+        temp_dir = tempfile.mkdtemp()
+        for uploaded_file in uploaded_folder:
+            file_path = os.path.join(temp_dir, uploaded_file.name)
+            with open(file_path, "wb") as f:
+                f.write(uploaded_file.read())
+
+        slices = [pydicom.dcmread(f) for f in glob(os.path.join(temp_dir, "*.dcm"))[:50]]
+        slices.sort(key=lambda x: float(x.SliceLocation))
+        volume = np.array([s.pixel_array for s in slices])
+
+        input_tensor = torch.tensor(volume, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+        input_tensor_r2plus1d = input_tensor.expand(-1, 3, -1, -1, -1)
+
+        predicted_N_label, confidence_N = N_CLASS_LABELS[torch.argmax(N_model(input_tensor))], F.softmax(N_model(input_tensor), dim=1).max().item()
+        predicted_M_label, confidence_M = M_CLASS_LABELS[torch.argmax(M_model(input_tensor))], F.softmax(M_model(input_tensor), dim=1).max().item()
+        predicted_T_stage, confidence_T = T_STAGE_LABELS[torch.argmax(T_stage_model(input_tensor_r2plus1d))], F.softmax(T_stage_model(input_tensor_r2plus1d), dim=1).max().item()
+        predicted_tumor_location, confidence_TL = TUMOR_LOCATION_LABELS[torch.argmax(Tumor_model(input_tensor_r2plus1d))], F.softmax(Tumor_model(input_tensor_r2plus1d), dim=1).max().item()
+
+        st.subheader("Predicted Stages and Tumor Location")
+        st.write(f"**T Stage:** {predicted_T_stage} (Confidence: {confidence_T:.2f})")
+        st.write(f"**N Stage:** {predicted_N_label} (Confidence: {confidence_N:.2f})")
+        st.write(f"**M Stage:** {predicted_M_label} (Confidence: {confidence_M:.2f})")
+        st.write(f"**Tumor Location:** {predicted_tumor_location} (Confidence: {confidence_TL:.2f})")
 
 # --- Complications Page (unchanged) ---
 elif page == "Complications":
