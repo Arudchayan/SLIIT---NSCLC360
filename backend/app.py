@@ -8,10 +8,19 @@ import joblib
 import numpy as np
 import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler
+import os
+import zipfile
+import tempfile
+import torch
+
+from TNM.models.Files.dicom_processing import load_dicom_images, convert_to_3d_volume, normalize_hu, fast_resize
+from TNM.models.Files.model_utils import load_models
 
 # Initialize Flask app and enable CORS
 app = Flask(__name__)
 CORS(app)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load pre-trained Cox model and optional patient data
 # Adjust paths as needed
@@ -21,10 +30,12 @@ model_ctype_catl = joblib.load("models/tabnet_cat_ctypl.pkl")
 model_ctypel = joblib.load("models/tabnet_ctypel.pkl")
 model_comp_gap_category = joblib.load("models/tabnet_trt_cat.pkl")
 
-
-
-
-
+# Load models once at startup
+model_t, model_n, model_m, model_loc = load_models()
+model_t.to(device).eval()
+model_n.to(device).eval()
+model_m.to(device).eval()
+model_loc.to(device).eval()
 
 # Mapping dictionaries (as per your Streamlit code)
 ctypel_mapping = {
@@ -211,11 +222,85 @@ def prognosis():
     }
     return jsonify(response)
 
-
 @app.route('/detection', methods=['POST'])
 def detection():
-    # Placeholder for detection endpoint
-    return jsonify({'message': 'Detection endpoint not implemented yet.'})
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = request.files['file']
+
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            zip_path = os.path.join(temp_dir, 'upload.zip')
+            file.save(zip_path)
+
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+
+            slices = load_dicom_images(temp_dir)
+            if not slices:
+                return jsonify({"error": "No DICOM files found"}), 400
+
+            volume, _ = convert_to_3d_volume(slices)
+            volume_processed = normalize_hu(fast_resize(volume, (64,128,128)))
+
+            input_tensor = torch.tensor(volume_processed).unsqueeze(0).unsqueeze(0).float().to(device)
+
+            with torch.no_grad():
+                pred_t = torch.argmax(model_t(input_tensor), dim=1).item()
+                pred_n = torch.argmax(model_n(input_tensor), dim=1).item()
+                pred_m = torch.argmax(model_m(input_tensor), dim=1).item()
+                pred_loc = torch.argmax(model_loc(input_tensor), dim=1).item()
+
+            # Map numeric predictions to human-readable labels
+            T_STAGE_CLASSES = {
+                0: "T1a",
+                1: "T1b",
+                2: "T2a",
+                3: "T2b",
+                4: "T3",
+                5: "T4",
+                6: "Tis"
+            }
+
+            N_STAGE_CLASSES = {
+                0: "N0",
+                1: "N1",
+                2: "N2"
+            }
+
+            M_STAGE_CLASSES = {
+                0: "M0",
+                1: "M1a",
+                2: "M1b"
+            }
+
+            LOCATION_CLASSES = {
+                0: "L Lingula",
+                1: "LLL",
+                2: "LUL",
+                3: "RLL",
+                4: "RML",
+                5: "RUL"
+            }
+
+            pred_t_label = T_STAGE_CLASSES.get(pred_t, "Unknown")
+            pred_n_label = N_STAGE_CLASSES.get(pred_n, "Unknown")
+            pred_m_label = M_STAGE_CLASSES.get(pred_m, "Unknown")
+            pred_loc_label = LOCATION_CLASSES.get(pred_loc, "Unknown")
+
+            return jsonify({
+                "T": pred_t_label,
+                "N": pred_n_label,
+                "M": pred_m_label,
+                "Location": pred_loc_label
+            })
+
+    except Exception as e:
+        import traceback
+        print(f"Error in /detection: {e}")
+        traceback.print_exc()
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
 
 
 @app.route('/complications', methods=['POST'])

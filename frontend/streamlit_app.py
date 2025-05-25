@@ -43,18 +43,25 @@ if page == "Prognosis":
 # Stub pages
 elif page == "Detection":
     st.title("Detection")
-    st.write("Upload data and receive detection results from the backend.")
-    uploaded_file = st.file_uploader("Choose file", type=["csv"] )
-    if uploaded_file:
-        files = {"file": (uploaded_file.name, uploaded_file, "text/csv")}
-        try:
-            response = requests.post(f"{BACKEND_URL}/detection", files=files)
-            if response.ok:
-                st.json(response.json())
-            else:
-                st.error(f"Detection failed: {response.text}")
-        except Exception as e:
-            st.error(f"Error connecting to backend: {e}")
+    uploaded_zip = st.file_uploader("Upload zipped DICOM folder", type=["zip"])
+
+    if uploaded_zip is not None:
+        with st.spinner("Sending data to backend for prediction..."):
+            files = {"file": (uploaded_zip.name, uploaded_zip, "application/zip")}
+            try:
+                response = requests.post("http://localhost:5000/detection", files=files)
+                response.raise_for_status()
+                result = response.json()
+
+                st.subheader("Predictions:")
+                st.write(f"T Stage: {result.get('T', 'N/A')}")
+                st.write(f"N Stage: {result.get('N', 'N/A')}")
+                st.write(f"M Stage: {result.get('M', 'N/A')}")
+                st.write(f"Tumor Location: {result.get('Location', 'N/A')}")
+            except requests.exceptions.RequestException as e:
+                st.error(f"Error communicating with backend: {e}")
+            except Exception as e:
+                st.error(f"Unexpected error: {e}")
 
 elif page == "Complications":
     st.title("Lung Cancer Complication Predictor")
