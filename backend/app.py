@@ -16,6 +16,120 @@ CORS(app)
 # Load pre-trained Cox model and optional patient data
 # Adjust paths as needed
 cox_model = joblib.load('Prognosis/model/cox_model.pkl')
+# Load models once when starting app
+model_ctype_catl = joblib.load("models/tabnet_cat_ctypl.pkl")
+model_ctypel = joblib.load("models/tabnet_ctypel.pkl")
+model_comp_gap_category = joblib.load("models/tabnet_trt_cat.pkl")
+
+
+
+
+
+
+# Mapping dictionaries (as per your Streamlit code)
+ctypel_mapping = {
+    'Acute / Chronic Respiratory Failure': 0, 'Atelectasis': 1, 'Bleeding & Wound Healing Issues': 2,
+    'Bronchopulmonary Fistula': 3, 'Bronchospasm': 4, 'Cardiac Arrhythmia': 5, 'Cardiac Emergencies': 6,
+    'Cerebral vascular accident (CVA) / Stroke': 7, 'Congestive Heart Failure (CHF)': 8,
+    'Deep Venous Thrombosis (DVT)': 9, 'Fever Requiring Antibiotics': 10, 'Hospitalization': 11,
+    'Hypokalemia': 12, 'Hypotension / Vasovagal Reaction': 13, 'Infectious': 14, 'Other Specify': 15,
+    'Pain Requiring Referral to an Anesthesiologist / Pain Specialist': 16, 'Pneumothorax': 17,
+    'Pulmonary Embolus / Emboli': 18, 'Respiratory Arrest': 19, 'Rib Fracture(s)': 20, 'Urinary': 21,
+    'Vocal Cord Immobility / Paralysis': 22
+}
+inv_ctypel_mapping = {v: k for k, v in ctypel_mapping.items()}
+
+ctype_catl_mapping = {0: "Intermediate", 1: "Major", 2: "Minor"}
+comp_gap_category_mapping = {2: "pre treatment", 0: "during treatment", 1: "post treatment"}
+
+# Input feature mappings (for encoding categorical fields)
+mappings = {
+    'sex': {'Female': 0, 'Male': 1},
+    'bmi_curc': {'0-18.5': 0, '18.5-25': 1, '25-30': 2, '30+': 3},
+    'cig_stat': {'Current Cigarette Smoker': 0, 'Former Cigarette Smoker': 1, 'Never Smoked Cigarettes': 2},
+    'ph_any_trial': {'No': 0, 'Yes': 1},
+    'diabetes_f': {'No': 0, 'Yes': 1},
+    'hyperten_f': {'No': 0, 'Yes': 1},
+    'emphys_f': {'No': 0, 'Yes': 1},
+    'bronchit_f': {'No': 0, 'Yes': 1},
+    'hearta_f': {'No': 0, 'Yes': 1},
+    'proc_numl': {
+        'Biopsy & Cytology': 0, 'Biopsy, endobronchial': 1, 'Biopsy, transbronchial': 2,
+        'Bone Radiograph': 3, 'Bronchoscopy': 4, 'Bx, other - non-lung histology': 5,
+        'CT - abdomen': 6, 'CT - chest, abdomen and pelvis': 7, 'CT Scan - Brain': 8,
+        'CT Scan - Chest': 9, 'CT Scan - abdomen and pelvis': 10, 'CT Scan - chest and upper abdomen': 11,
+        'CT, MRI & Ultrasound': 12, 'CT-scan, spiral - chest': 13, 'Chest Radiogram - Lat': 14,
+        'Clinical Exam': 15, 'Comparison of Chest X-rays': 16, 'Cytology': 17,
+        'Internal Referrals': 18, 'Lymphadenectomy': 19, 'MRI Scan - Brain': 20,
+        'Mediastinoscopy': 21, 'Other - PET': 22, 'Other - radionucleotide, Fusion PET/CT': 23,
+        'Pulmonary Function Tests': 24, 'Radiographic & Miscellaneous': 25,
+        'Radionuclide Scan - Bone': 26, 'Record review': 27, 'Resection': 28,
+        'Surgical Open Biopsy': 29, 'Thoracentesis': 30, 'Thoracoscopy': 31,
+        'Thoracotomy': 32, 'Transbronchial Aspiration': 33, 'Transthoracic Aspiration': 34,
+        'Ventilation perfusion lung scan': 35
+    },
+    'del_invas_cat': {
+        'Bronchoscopy with biopsy': 0, 'Bronchoscopy without biopsy': 1, 'Chest Imaging': 2,
+        'Chest X-ray': 3, 'Clinical': 4, 'Comparison': 5, 'Cytology': 6, 'Mediastinoscopy': 7,
+        'Needle biopsy': 8, 'Other with biopsy': 9, 'Other- no biopsy': 10, 'Other- non-lung': 11,
+        'PET Scan': 12, 'Resection - no approach specified': 13, 'Staging Imaging': 14,
+        'Thoracentesis': 15, 'Thoracoscopy': 16, 'Thoracotomy': 17
+    },
+    'biop': {'No': 0, 'Yes': 1},
+    'biopllink0': {'No': 0, 'Yes': 1},
+    'reasfolll': {'No': 0, 'Yes': 1},
+    'lung_stage': {
+        'Stage IA': 0, 'Stage IB': 1, 'Stage IIA': 2, 'Stage IIB': 3,
+        'Stage IIIA': 4, 'Stage IIIB': 5, 'Stage IV': 6
+    },
+    'lung_clinstage': {
+        'Occult Carcinoma': 0, 'Stage IA': 1, 'Stage IB': 2, 'Stage IIA': 3,
+        'Stage IIB': 4, 'Stage IIIA': 5, 'Stage IIIB': 6, 'Stage IV': 7
+    },
+    'lung_stage_t': {'T1': 0, 'T2': 1, 'T3': 2, 'T4': 3},
+    'lung_stage_n': {'N0': 0, 'N1': 1, 'N2': 2, 'N3': 3, 'NX': 4},
+    'lung_stage_m': {'M0': 0, 'M1': 1},
+    'lung_histtype_cat': {
+        'Adenocarcinoma': 0, 'Bronchiolo-alveolar carcinoma': 1, 'Carcinoma, NOS': 2,
+        'Large cell carcinoma': 3, 'Other NSC carcinoma': 4, 'Other/Missing': 5,
+        'Squamous cell carcinoma': 6
+    },
+    'trt_familyl': {
+        'Chemotherapy': 0, 'Non-curative treatment': 1, 'Pneumonectomy or bilobectomy': 2,
+        'Radiation treatment': 3, 'Wedge resection, segmental resection, or lobectomy': 4
+    },
+    'trt_numl': {
+        'Bilobectomy': 0, 'Chemotherapy - Platinum-Based Drugs': 1, 'Chest wall resection': 2,
+        'External photon beam': 3, 'Lobectomy': 4, 'Lymphadenectomy / lymph node sampling': 5,
+        'Other chemotherapy (specify)': 6, 'Other treatment, NOS': 7, 'Partial pleurectomy': 8,
+        'Pneumonectomy': 9, 'Radiation Therapy (General & Unspecified)': 10,
+        'Segmental resection': 11, 'Surgical Procedures': 12, 'Systemic treatment, NOS': 13,
+        'Thoracentesis': 14, 'Wedge resection': 15
+    },
+    'neoadjuvant': {'Neoadjuvant': 0, 'Not neoadjuvant': 1}
+}
+
+
+
+
+
+def map_input(field_name, value):
+    return mappings[field_name][value]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 try:
     patients_data = pd.read_csv('Prognosis/df_train_scaled_external_tested.csv', index_col=0)
 except FileNotFoundError:
@@ -106,8 +220,37 @@ def detection():
 
 @app.route('/complications', methods=['POST'])
 def complications():
-    # Placeholder for complications endpoint
-    return jsonify({'message': 'Complications endpoint not implemented yet.'})
+    try:
+        data = request.json
+        
+        # Map inputs using mappings
+        for key in data:
+            if key in mappings:
+                data[key] = map_input(key, data[key])
+        
+        # Convert to DataFrame for model input
+        input_df = pd.DataFrame([data]).astype(float)
+        
+        # Predict
+        pred_catl = model_ctype_catl.predict(input_df)[0]
+        pred_ctypel = model_ctypel.predict(input_df)[0]
+        pred_gap = model_comp_gap_category.predict(input_df)[0]
+        
+        # Prediction probabilities for ctypel
+        pred_ctypel_proba = model_ctypel.predict_proba(input_df)[0]
+        top_5_indices = np.argsort(pred_ctypel_proba)[-5:][::-1]
+        
+        top_5 = [{"complication": inv_ctypel_mapping[i], "probability": float(pred_ctypel_proba[i])} for i in top_5_indices]
+        
+        response = {
+            "severity": ctype_catl_mapping.get(pred_catl, "Unknown"),
+            "complication_type": inv_ctypel_mapping.get(pred_ctypel, "Unknown"),
+            "treatment_timing": comp_gap_category_mapping.get(pred_gap, "Unknown"),
+            "top_5_complications": top_5
+        }
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
 
 
 @app.route('/recurrence', methods=['POST'])
