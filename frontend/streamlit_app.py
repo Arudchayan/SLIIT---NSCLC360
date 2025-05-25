@@ -57,9 +57,178 @@ elif page == "Detection":
             st.error(f"Error connecting to backend: {e}")
 
 elif page == "Complications":
-    st.title("Complications")
-    st.write("Complications analysis coming from backend.")
-    # Similar pattern can be implemented here
+    st.title("Lung Cancer Complication Predictor")
+    st.write("Predicts complication severity, type, and treatment timing")
+
+        # Custom CSS styling for the Predict button
+    st.markdown("""
+    <style>
+        .stButton>button {
+            width: 100%;
+            height: 2em;  /* Increased height */
+            font-size: 24px;  /* Larger font size */
+            font-weight: 800;  /* Semi-bold weight */
+            letter-spacing: 0.5px;  /* Slight spacing */
+            background-color: #2e86c1;
+            color: #ffffff;
+            border-radius: 12px;
+            border: 2px solid #1f618d;
+            text-transform: uppercase;  /* All caps */
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);  /* Text shadow */
+            padding: 0 20px;  /* Horizontal padding */
+        }
+        
+        .stButton>button:hover {
+            background-color: #1f618d;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px 0 rgba(0,0,0,0.2);
+            letter-spacing: 0.7px;  /* Interactive spacing */
+        }
+        
+        .stButton>button:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 4px 0 rgba(0,0,0,0.2);
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+    # Define mappings for your selectboxes
+    mappings = {
+        'sex': ['Female', 'Male'],
+        'bmi_curc': ['0-18.5', '18.5-25', '25-30', '30+'],
+        'cig_stat': ['Current Cigarette Smoker', 'Former Cigarette Smoker', 'Never Smoked Cigarettes'],
+        'ph_any_trial': ['No', 'Yes'],
+        'diabetes_f': ['No', 'Yes'],
+        'hyperten_f': ['No', 'Yes'],
+        'emphys_f': ['No', 'Yes'],
+        'bronchit_f': ['No', 'Yes'],
+        'hearta_f': ['No', 'Yes'],
+        'proc_numl': [
+            'Biopsy & Cytology', 'Biopsy, endobronchial', 'Biopsy, transbronchial', 'Bone Radiograph',
+            'Bronchoscopy', 'Bx, other - non-lung histology', 'CT - abdomen', 'CT - chest, abdomen and pelvis',
+            'CT Scan - Brain', 'CT Scan - Chest', 'CT Scan - abdomen and pelvis', 'CT Scan - chest and upper abdomen',
+            'CT, MRI & Ultrasound', 'CT-scan, spiral - chest', 'Chest Radiogram - Lat', 'Clinical Exam',
+            'Comparison of Chest X-rays', 'Cytology', 'Internal Referrals', 'Lymphadenectomy', 'MRI Scan - Brain',
+            'Mediastinoscopy', 'Other - PET', 'Other - radionucleotide, Fusion PET/CT', 'Pulmonary Function Tests',
+            'Radiographic & Miscellaneous', 'Radionuclide Scan - Bone', 'Record review', 'Resection',
+            'Surgical Open Biopsy', 'Thoracentesis', 'Thoracoscopy', 'Thoracotomy', 'Transbronchial Aspiration',
+            'Transthoracic Aspiration', 'Ventilation perfusion lung scan'
+        ],
+        'del_invas_cat': [
+            'Bronchoscopy with biopsy', 'Bronchoscopy without biopsy', 'Chest Imaging', 'Chest X-ray',
+            'Clinical', 'Comparison', 'Cytology', 'Mediastinoscopy', 'Needle biopsy', 'Other with biopsy',
+            'Other- no biopsy', 'Other- non-lung', 'PET Scan', 'Resection - no approach specified', 'Staging Imaging',
+            'Thoracentesis', 'Thoracoscopy', 'Thoracotomy'
+        ],
+        'biop': ['No', 'Yes'],
+        'biopllink0': ['No', 'Yes'],
+        'reasfolll': ['No', 'Yes'],
+        'lung_stage': ['Stage IA', 'Stage IB', 'Stage IIA', 'Stage IIB', 'Stage IIIA', 'Stage IIIB', 'Stage IV'],
+        'lung_clinstage': ['Occult Carcinoma', 'Stage IA', 'Stage IB', 'Stage IIA', 'Stage IIB', 'Stage IIIA', 'Stage IIIB', 'Stage IV'],
+        'lung_stage_t': ['T1', 'T2', 'T3', 'T4'],
+        'lung_stage_n': ['N0', 'N1', 'N2', 'N3', 'NX'],
+        'lung_stage_m': ['M0', 'M1'],
+        'lung_histtype_cat': [
+            'Adenocarcinoma', 'Bronchiolo-alveolar carcinoma', 'Carcinoma, NOS', 'Large cell carcinoma',
+            'Other NSC carcinoma', 'Other/Missing', 'Squamous cell carcinoma'
+        ],
+        'trt_familyl': ['Chemotherapy', 'Non-curative treatment', 'Pneumonectomy or bilobectomy', 'Radiation treatment', 'Wedge resection, segmental resection, or lobectomy'],
+        'trt_numl': ['Bilobectomy', 'Chemotherapy - Platinum-Based Drugs', 'Chest wall resection', 'External photon beam', 'Lobectomy',
+                    'Lymphadenectomy / lymph node sampling', 'Other chemotherapy (specify)', 'Other treatment, NOS', 'Partial pleurectomy',
+                    'Pneumonectomy', 'Radiation Therapy (General & Unspecified)', 'Segmental resection', 'Surgical Procedures',
+                    'Systemic treatment, NOS', 'Thoracentesis', 'Wedge resection'],
+        'neoadjuvant': ['Neoadjuvant', 'Not neoadjuvant']
+    }
+
+    # Collect user inputs
+    inputs = {}
+
+    col1, col2 = st.columns(2)
+    with col1:
+        inputs['age'] = st.number_input("Age", min_value=0, max_value=120, value=50)
+        inputs['sex'] = st.selectbox("Sex", mappings['sex'])
+        inputs['bmi_curc'] = st.selectbox("BMI Category", mappings['bmi_curc'])
+        inputs['cig_stat'] = st.selectbox("Smoking Status", mappings['cig_stat'])
+        inputs['pack_years'] = st.number_input("Pack Years", min_value=0.0, value=0.0)
+        inputs['ph_any_trial'] = st.selectbox("Clinical Trial Participation", mappings['ph_any_trial'])
+        inputs['diabetes_f'] = st.selectbox("Diabetes", mappings['diabetes_f'])
+        inputs['hyperten_f'] = st.selectbox("Hypertension", mappings['hyperten_f'])
+
+    with col2:
+        inputs['emphys_f'] = st.selectbox("Emphysema", mappings['emphys_f'])
+        inputs['bronchit_f'] = st.selectbox("Chronic Bronchitis", mappings['bronchit_f'])
+        inputs['hearta_f'] = st.selectbox("Heart Disease", mappings['hearta_f'])
+        inputs['proc_numl'] = st.selectbox("Procedure Type", mappings['proc_numl'])
+        inputs['del_invas_cat'] = st.selectbox("Diagnostic Method", mappings['del_invas_cat'])
+        inputs['biop'] = st.selectbox("Biopsy Performed", mappings['biop'])
+        inputs['biopllink0'] = st.selectbox("Biopsy Linked", mappings['biopllink0'])
+        inputs['reasfolll'] = st.selectbox("Follow-up Required", mappings['reasfolll'])
+
+    col3, col4 = st.columns(2)
+    with col3:
+        st.subheader("Cancer Staging")
+        inputs['lung_stage'] = st.selectbox("Overall Stage", mappings['lung_stage'])
+        inputs['lung_clinstage'] = st.selectbox("Clinical Stage", mappings['lung_clinstage'])
+        inputs['lung_stage_t'] = st.selectbox("T Stage", mappings['lung_stage_t'])
+        inputs['lung_stage_n'] = st.selectbox("N Stage", mappings['lung_stage_n'])
+        inputs['lung_stage_m'] = st.selectbox("M Stage", mappings['lung_stage_m'])
+
+    with col4:
+        st.subheader("Treatment Details")
+        inputs['lung_histtype_cat'] = st.selectbox("Histology Type", mappings['lung_histtype_cat'])
+        inputs['trt_familyl'] = st.selectbox("Treatment Category", mappings['trt_familyl'])
+        inputs['trt_numl'] = st.selectbox("Specific Treatment", mappings['trt_numl'])
+        inputs['neoadjuvant'] = st.selectbox("Neoadjuvant Therapy", mappings['neoadjuvant'])
+
+    if st.button("Predict"):
+        try:
+            import requests
+            # Send all input fields as JSON to backend
+            response = requests.post("http://localhost:5000/complications", json=inputs)
+            if response.ok:
+                data = response.json()
+
+                pred_catl = data.get('severity', 'Unknown')
+                pred_ctypel = data.get('complication_type', 'Unknown')
+                pred_gap = data.get('treatment_timing', 'Unknown')
+                top_5 = data.get('top_5_complications', [])
+
+                # Styled display of prediction results
+                with st.container():
+                    col1, col2, col3 = st.columns([1, 3, 1])
+                    with col2:
+                        st.markdown("---")
+                        with st.expander("### Prediction Results", expanded=True):
+                            st.markdown(f"""
+                            **Severity:**  
+                            <span style="color: #2e86c1; font-size: 20px">{pred_catl}</span>  
+                            
+                            **Complication Type:**  
+                            <span style="color: #2e86c1; font-size: 20px">{pred_ctypel}</span>  
+                            
+                            **Treatment Timing:**  
+                            <span style="color: #2e86c1; font-size: 20px">{pred_gap}</span>
+                            """, unsafe_allow_html=True)
+
+                        st.markdown("<br>", unsafe_allow_html=True)
+
+                        st.markdown("### Top 5 Complication Probabilities")
+                        for comp in top_5:
+                            st.markdown(f"""
+                            <div style="padding: 10px; border-radius: 5px; margin: 5px 0; 
+                                        background-color: black; border-left: 4px solid #2e86c1">
+                                <strong>{comp['complication']}:</strong> {comp['probability']*100:.2f}%
+                            </div>
+                            """, unsafe_allow_html=True)
+                        
+                        st.markdown("---")
+            else:
+                st.error(f"Prediction failed: {response.text}")
+        except Exception as e:
+            st.error(f"Error connecting to backend: {e}")
+
+
     
 elif page == "Recurrence":
     st.title("Recurrence Prediction")
