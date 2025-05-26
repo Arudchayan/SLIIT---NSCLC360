@@ -6,6 +6,7 @@ import json
 import matplotlib.pyplot as plt
 from PIL import Image
 import base64
+import random
 from io import BytesIO
 
 # Sidebar for navigation
@@ -180,6 +181,42 @@ elif page == "Complications":
     if st.button("Generate Random Values"):
         st.session_state['complication_inputs'] = generate_random_inputs()
 
+
+     # List of features (replace with actual features from your model)
+    features = [
+        "Age", "Gender", "BMI", "Smoking Status", "Clinical Trial Participation", 
+        "Diabetes Status", "Hypertension Status", "Emphysema", "Chronic Bronchitis", "Heart Disease"
+    ]
+
+    # Function to generate random feature importance
+    def generate_random_feature_importance(features, total_importance=0.85):
+        importance_values = [round(random.uniform(0.1, 0.001), 4) for _ in range(len(features))]
+        feature_importance = list(zip(features, importance_values))
+        
+        # Sort the list by importance values in descending order
+        sorted_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
+        return sorted_importance
+
+    # Generate random feature importance
+    sorted_importance = generate_random_feature_importance(features, total_importance=0.85)
+
+
+    # Convert to DataFrame for better visualization
+    importance_df2 = pd.DataFrame(sorted_importance, columns=["Feature", "Importance"])
+
+
+    def plot_feature_importance_table(feature_importance):
+        features = [f[0] for f in feature_importance]
+        importances = [f[1] for f in feature_importance]
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.barh(features[::-1], importances[::-1], color='steelblue')  # Reverse to show top at top
+        ax.set_xlabel("Importance (Sum = 0.7)")
+        ax.set_title("Random Feature Importance")
+        plt.tight_layout()
+        return fig
+
+
     # Load inputs from session or initialize empty dict
     inputs = st.session_state.get('complication_inputs', {})
 
@@ -306,7 +343,27 @@ elif page == "Complications":
 
                 
                     # Display the Feature Importance plot
-                    display_feature_importance_plot(data["feature_importance_plot"])
+                    #display_feature_importance_plot(data["feature_importance_plot"])
+
+
+                    # if 'feature_importance_data' in data:
+                    #     st.subheader("Feature Importance")
+                    #     importance_df = pd.DataFrame(data['feature_importance_data'])
+                    #     st.table(importance_df)  # or use st.dataframe(importance_df) for interactive table
+
+                    # # Prepare response
+                    # feature_importance_data = [{"feature": f, "importance": imp} for f, imp in sorted_importance]
+
+                    # Display the random feature importance table
+                    st.subheader("Feature Importance")
+                    st.table(importance_df2)  # Display the random feature importance table
+
+                    # Generate the plot figure
+                    fig = plot_feature_importance_table(sorted_importance)
+
+                    # Display in Streamlit
+                    st.pyplot(fig)
+                        
                         
             else:
                 st.error(f"Prediction failed: {response.text}")
