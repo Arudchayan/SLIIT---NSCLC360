@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
 import matplotlib.pyplot as plt
+import base64
+from io import BytesIO
 import joblib
 import numpy as np
 import seaborn as sns
@@ -54,7 +56,7 @@ def plot_feature_importance(model, feature_names):
     plt.xlabel('Importance', fontsize=12)
     plt.ylabel('Feature', fontsize=12)
     plt.tight_layout()
-
+    
     # Convert the plot to base64 for front-end display
     buf = BytesIO()
     plt.savefig(buf, format='png')
@@ -251,6 +253,7 @@ def prognosis():
     }
     return jsonify(response)
 
+
 @app.route('/detection', methods=['POST'])
 def detection():
     if 'file' not in request.files:
@@ -360,12 +363,22 @@ def complications():
         feature_importance_image = plot_feature_importance(model_ctypel, input_df.columns)
 
 
+        feature_importance_data = pd.DataFrame({
+            'Feature': input_df.columns,
+            'Importance': model_ctypel.feature_importances_  # Replace with actual model importance or SHAP values
+        }).sort_values(by='Importance', ascending=False).head(10)  # Top 10 features
+
+        # Convert feature importance table to JSON for frontend
+        feature_importance_json = feature_importance_data.to_dict(orient='records')
+
+
         response = {
             "severity": ctype_catl_mapping.get(pred_catl, "Unknown"),
             "complication_type": inv_ctypel_mapping.get(pred_ctypel, "Unknown"),
             "treatment_timing": comp_gap_category_mapping.get(pred_gap, "Unknown"),
             "top_5_complications": top_5,
-            "feature_importance_plot": feature_importance_image
+            "feature_importance_plot": feature_importance_image,
+            "feature_importance_data": feature_importance_json
         }
         return jsonify(response)
     except Exception as e:
