@@ -42,7 +42,7 @@ if page == "Prognosis":
 
 # Stub pages
 elif page == "Detection":
-    st.title("Detection")
+    st.title("Tumor Analysis")
     uploaded_zip = st.file_uploader("Upload zipped DICOM folder", type=["zip"])
 
     if uploaded_zip is not None:
@@ -54,10 +54,71 @@ elif page == "Detection":
                 result = response.json()
 
                 st.subheader("Predictions:")
-                st.write(f"T Stage: {result.get('T', 'N/A')}")
-                st.write(f"N Stage: {result.get('N', 'N/A')}")
-                st.write(f"M Stage: {result.get('M', 'N/A')}")
-                st.write(f"Tumor Location: {result.get('Location', 'N/A')}")
+                # Output the results
+                pred_t_label = result.get('T', 'N/A')
+                pred_n_label = result.get('N', 'N/A')
+                pred_m_label = result.get('M', 'N/A')
+                pred_loc_label = result.get('Location', 'N/A')
+
+                # Display predictions
+                st.write(f"T Stage: {pred_t_label}")
+                st.write(f"N Stage: {pred_n_label}")
+                st.write(f"M Stage: {pred_m_label}")
+                st.write(f"Tumor Location: {pred_loc_label}")
+
+                # Explanation for each prediction
+                t_stage_explanation = {
+                    "T1a": "This means the tumor size is small, confined to a specific area of the lung.",
+                    "T1b": "This means the tumor size is moderate but still confined to the lung area.",
+                    "T2a": "This means the tumor size is moderate, and it has grown into nearby lung tissue but has not spread further.",
+                    "T2b": "This means the tumor size is larger and has spread to nearby lung tissue.",
+                    "T3": "This means the tumor size is large, and it may have affected surrounding organs or structures.",
+                    "T4": "This means the tumor is very large and may have invaded adjacent structures.",
+                    "Tis": "This means the tumor is in situ (localized), and has not spread to surrounding tissues."
+                }
+
+                n_stage_explanation = {
+                    "N0": "No lymph node involvement, indicating no spread to nearby lymph nodes.",
+                    "N1": "Cancer has spread to nearby lymph nodes, indicating local spread.",
+                    "N2": "Cancer has spread to more distant lymph nodes, indicating further spread.",
+                }
+
+                m_stage_explanation = {
+                    "M0": "No distant metastasis detected, which is a positive sign.",
+                    "M1": "Cancer has spread to distant organs or tissues, indicating metastasis.",
+                    "M1a": "Cancer has spread to distant organs, but with a less severe impact.",
+                    "M1b": "Cancer has spread to distant organs with significant severity.",
+                }
+
+                location_explanation = {
+                    "L Lingula": "The tumor is located in the left lingula part of the left lung.",
+                    "LLL": "The tumor is located in the left lower lobe of the left lung.",
+                    "LUL": "The tumor is located in the left upper lobe of the left lung.",
+                    "RLL": "The tumor is located in the right lower lobe of the right lung.",
+                    "RML": "The tumor is located in the right middle lobe of the right lung.",
+                    "RUL": "The tumor is located in the right upper lobe of the right lung."
+                }
+
+                # Add explanations for T, N, M stages
+                st.write(f"**T Stage Explanation:** {t_stage_explanation.get(pred_t_label, 'No explanation available for this stage.')}")
+                st.write(f"**N Stage Explanation:** {n_stage_explanation.get(pred_n_label, 'No explanation available for this stage.')}")
+                st.write(f"**M Stage Explanation:** {m_stage_explanation.get(pred_m_label, 'No explanation available for this stage.')}")
+                st.write(f"**Tumor Location Explanation:** {location_explanation.get(pred_loc_label, 'No explanation available for this location.')}")
+
+                # Provide a summary section at the end
+                summary_text = (
+                    f"**What this means for you:**\n\n"
+                    f"Based on your scan and clinical data, your tumor size and spread are currently at stage **{pred_t_label}{pred_n_label}{pred_m_label}**. "
+                    f"This indicates {t_stage_explanation.get(pred_t_label, '').lower()} with {n_stage_explanation.get(pred_n_label, '').lower()}, "
+                    f"but {m_stage_explanation.get(pred_m_label, '').lower()}. "
+                    f"Your tumor is located in the **{pred_loc_label}** of your lung, which means {location_explanation.get(pred_loc_label, '').lower()}.\n\n"
+                    f"Regular monitoring and following your doctor’s advice is important."
+                )
+
+                st.markdown("---")
+                st.header("Summary")
+                st.write(summary_text)
+
             except requests.exceptions.RequestException as e:
                 st.error(f"Error communicating with backend: {e}")
             except Exception as e:
