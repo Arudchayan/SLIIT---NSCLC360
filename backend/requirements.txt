@@ -8,3 +8,8 @@ joblib>=1.2.0
 lifelines>=0.28.0
 imblearn
 xgboost
+torch
+tensorflow
+pydicom
+scikit-image
+tqdm
