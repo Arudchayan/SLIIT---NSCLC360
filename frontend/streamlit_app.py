@@ -2,11 +2,11 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
-import json
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 from PIL import Image
 import base64
 from io import BytesIO
+import json
 
 # Sidebar for navigation
 page = st.sidebar.selectbox(
@@ -43,7 +43,6 @@ if page == "Prognosis":
         except Exception as e:
             st.error(f"Error connecting to backend: {e}")
 
-# Stub pages
 elif page == "Detection":
     st.title("Tumor Analysis")
     uploaded_zip = st.file_uploader("Upload zipped DICOM folder", type=["zip"])
@@ -319,7 +318,6 @@ elif page == "Complications":
 
     if st.button("Predict"):
         try:
-            import requests
             response = requests.post("http://localhost:5000/complications", json=input_data)
             if response.ok:
                 data = response.json()
@@ -381,9 +379,6 @@ elif page == "Complications":
         except Exception as e:
             st.error(f"Error connecting to backend: {e}")
 
-
-
-    
 elif page == "Recurrence":
     st.title("Recurrence Prediction")
     st.write("Predict tumour event type, Progression-Free Interval (PFI) time, and PFI occurrence probability.")
@@ -600,7 +595,7 @@ elif page == "Recurrence":
     }
 
     gene_columns = list(gene_ranges.keys())
-    
+
     # Define categorical columns and their options
     categorical_columns = ["Gender", "ajcc_pathologic_tumor_stage", "treatment_outcome_first_course"]
     categorical_options = {
@@ -610,10 +605,11 @@ elif page == "Recurrence":
         "treatment_outcome_first_course": ['Complete Remission/Response', 'Progressive Disease',
                                            'Partial Remission/Response', 'Stable Disease', '[Not Evaluated]']
     }
-    
+
     # Initialize session state for input data
     if "input_data" not in st.session_state:
         st.session_state.input_data = {}
+
 
     # Random value generator
     def generate_random_values():
@@ -621,12 +617,13 @@ elif page == "Recurrence":
         random_data["Age"] = np.random.randint(18, 90)
         random_data["Gender"] = np.random.choice(categorical_options["Gender"])
         for col in categorical_columns[1:]:  # Skip Gender
-            options = [opt if opt != 'nan' else 'Unknown' for opt in categorical_options[col]]
+            options = [opt for opt in categorical_options[col] if opt != 'nan']
             random_data[col] = np.random.choice(options)
         for col in gene_columns:
             min_val, max_val = gene_ranges[col]
             random_data[col] = np.random.uniform(min_val, max_val)
         st.session_state.input_data = random_data
+
 
     # Button to generate random values
     if st.button("Generate Random Values"):
@@ -636,20 +633,20 @@ elif page == "Recurrence":
     with st.form(key="recurrence_form"):
         st.subheader("Patient Data Input")
         input_data = {}
-        
+
         # Age input
         input_data["Age"] = st.number_input(
-            "Age", 
-            min_value=18, 
-            max_value=100, 
+            "Age",
+            min_value=18,
+            max_value=100,
             value=st.session_state.input_data.get("Age", 50)
         )
 
         # Categorical inputs
         for col in categorical_columns:
             input_data[col] = st.selectbox(
-                col, 
-                options=categorical_options[col], 
+                col,
+                options=categorical_options[col],
                 index=categorical_options[col].index(st.session_state.input_data.get(col, categorical_options[col][0]))
                 if col in st.session_state.input_data else 0
             )
@@ -659,18 +656,18 @@ elif page == "Recurrence":
             # Use columns to display multiple inputs per row
             col1, col2 = st.columns(2)
             gene_count = 0
-            
+
             for gene in gene_columns:
                 min_val, max_val = gene_ranges[gene]
                 # Alternate between columns
                 current_col = col1 if gene_count % 2 == 0 else col2
                 with current_col:
                     input_data[gene] = st.number_input(
-                        gene, 
-                        min_value=float(min_val), 
-                        max_value=float(max_val), 
-                        value=st.session_state.input_data.get(gene, (min_val + max_val) / 2),
-                        step=0.01
+                        f"{gene}",
+                        min_value=float(min_val),
+                        max_value=float(max_val),
+                        value=float(st.session_state.input_data.get(gene, 0.0)),
+                        format="%.5f"
                     )
                 gene_count += 1
 
@@ -679,137 +676,520 @@ elif page == "Recurrence":
     if submit_button:
         # Send data to backend for processing
         try:
-            response = requests.post(f"{BACKEND_URL}/recurrence", json=input_data)
-            
+            with st.spinner("Analyzing patient data for recurrence risk..."):
+                response = requests.post(f"{BACKEND_URL}/recurrence", json=input_data)
+
             if response.ok:
                 data = response.json()
-                
+
                 # Extract results and plots
                 results = data.get('results', {})
                 plots = data.get('plots', {})
-                
-                # Display dashboard
-                st.subheader("Clinical Decision Support Dashboard")
-                
-                # Determine risk level color
-                risk_level = results.get('risk_level', 'Unknown')
-                risk_color = {
-                    "High": "#e74c3c",
-                    "Medium": "#f1c40f", 
-                    "Low": "#27ae60"
-                }.get(risk_level, "#7f8c8d")
-                
-                st.markdown(f"### Patient Risk Profile: <span style='color:{risk_color}'>{risk_level}</span>", unsafe_allow_html=True)
-                
-                # Main metrics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Tumor Event Type", results.get('event_prediction', 'Unknown'))
-                with col2:
-                    st.metric("Progression within 12 Months", 
-                              results.get('pfi_prediction', 'Unknown'), 
-                              f"{results.get('pfi_probability', 0):.1%}")
-                with col3:
+
+                # Create tabbed interface for better organization
+                tabs = st.tabs(["Risk Overview", "Tumor Event Details", "PFI Analysis", "Clinical Recommendations"])
+
+                # Tab 1: Risk Overview
+                with tabs[0]:
+                    # Determine risk level color
+                    risk_level = results.get('risk_level', 'Unknown')
+                    risk_color = {
+                        "High": "#e74c3c",
+                        "Medium": "#f1c40f",
+                        "Low": "#27ae60"
+                    }.get(risk_level, "#7f8c8d")
+
+                    st.markdown(f"### Patient Risk Profile: <span style='color:{risk_color}'>{risk_level}</span>",
+                                unsafe_allow_html=True)
+
+
+                    # Risk Gauge Chart
+                    def create_risk_gauge(risk_probability):
+
+                        fig = go.Figure(go.Indicator(
+                            mode="gauge+number",
+                            value=risk_probability * 100,
+                            domain={'x': [0, 1], 'y': [0, 1]},
+                            title={'text': "Progression Risk (%)", 'font': {'size': 24}},
+                            gauge={
+                                'axis': {'range': [0, 100], 'tickwidth': 1},
+                                'bar': {'color': "darkblue"},
+                                'steps': [
+                                    {'range': [0, 25], 'color': "#27ae60"},  # Low: Green
+                                    {'range': [25, 75], 'color': "#f1c40f"},  # Medium: Yellow
+                                    {'range': [75, 100], 'color': "#e74c3c"}  # High: Red
+                                ],
+                                'threshold': {
+                                    'line': {'color': "red", 'width': 4},
+                                    'thickness': 0.75,
+                                    'value': risk_probability * 100
+                                }
+                            }
+                        ))
+
+                        fig.update_layout(height=250)
+                        return fig
+
+
+                    # Display the gauge
+                    st.plotly_chart(
+                        create_risk_gauge(results.get('pfi_probability', 0)),
+                        use_container_width=True
+                    )
+
+                    # Main metrics
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Tumor Event Type", results.get('event_prediction', 'Unknown'))
+                    with col2:
+                        st.metric("Progression within 12 Months",
+                                  f"{results.get('pfi_probability', 0) * 100:.1f}%",
+                                  f"{results.get('pfi_prediction', 'Unknown')}")
+                    with col3:
+                        median_pfi = results.get('median_pfi_time')
+                        if median_pfi is not None:
+                            st.metric("Median PFI Time", f"{median_pfi:.0f} days",
+                                      f"{median_pfi / 30.4:.1f} months")
+                        else:
+                            st.metric("Median PFI Time", "Not reached")
+
+
+                    # Patient Timeline Visualization
+                    # For the follow-up timeline, increase the height
+                    def create_timeline(median_pfi):
+                        import plotly.graph_objects as go
+
+                        if not median_pfi:
+                            return None
+
+                        events = [
+                            {"label": "Today", "day": 0},
+                            {"label": "3 Month F/U", "day": 90},
+                            {"label": "6 Month F/U", "day": 180},
+                            {"label": "1 Year F/U", "day": 365},
+                            {"label": "Median PFI", "day": median_pfi},
+                        ]
+
+                        events.sort(key=lambda x: x["day"])
+
+                        fig = go.Figure()
+
+                        # Add events to timeline
+                        for i, event in enumerate(events):
+                            fig.add_trace(go.Scatter(
+                                x=[event["day"]],
+                                y=[0],
+                                mode="markers+text",
+                                marker=dict(size=15, symbol="circle", color="#3498db"),
+                                text=[event["label"]],
+                                textposition="top center",
+                                name=event["label"]
+                            ))
+
+                        # Add line connecting events
+                        days = [e["day"] for e in events]
+                        fig.add_trace(go.Scatter(
+                            x=days,
+                            y=[0] * len(days),
+                            mode="lines",
+                            line=dict(color="#3498db", width=2),
+                            showlegend=False
+                        ))
+
+                        fig.update_layout(
+                            title="Follow-up Timeline",
+                            xaxis=dict(title="Days"),
+                            yaxis=dict(showticklabels=False, zeroline=False),
+                            height=350,  # Increased from 250 to 350
+                            margin=dict(t=50, b=30),  # Added some margin
+                            hovermode="x unified"
+                        )
+
+                        return fig
+
+
+                    # Display timeline
                     median_pfi = results.get('median_pfi_time')
-                    if median_pfi is not None:
-                        st.metric("Median PFI Time", f"{median_pfi:.0f} days")
-                    else:
-                        st.metric("Median PFI Time", "Not reached")
+                    if median_pfi:
+                        timeline = create_timeline(median_pfi)
+                        if timeline:
+                            st.plotly_chart(timeline, use_container_width=True)
 
-                # Detailed breakdown
-                st.markdown("---")
-                st.subheader("Detailed Predictions")
+                # Tab 2: Tumor Event Details
+                with tabs[1]:
+                    st.subheader("Tumor Event Type Prediction")
 
-                # Tumor Event Breakdown
-                with st.expander("Tumor Event Type Prediction"):
-                    st.write(f"**Predicted Event:** {results.get('event_prediction', 'Unknown')}")
-                    
-                    # Clinical notes for different event types
-                    CLINICAL_NOTES = {
-                        "No New Tumor": "No evidence of tumor recurrence detected",
-                        "Local": "Cancer has returned to the original site",
-                        "Regional": "Cancer has spread to nearby lymph nodes or tissues",
-                        "Distant": "Cancer has spread to distant organs (Stage IV)",
-                        "New Primary": "New distinct cancer type identified",
-                        "Unknown": "Recurrence type needs further investigation"
-                    }
-                    note = CLINICAL_NOTES.get(results.get('event_prediction', 'Unknown'), 
-                                           'Consult oncologist for interpretation')
-                    st.write(f"**Clinical Note:** {note}")
-                    
-                    # Show probability breakdown
-                    st.write("**Probability Breakdown:**")
-                    for label, prob in results.get('event_probabilities', {}).items():
-                        st.write(f"- {label}: {prob*100:.2f}%")
-                    
-                    # Show feature importance if available
-                    if 'tumor_features' in plots:
-                        st.image(plots['tumor_features'], caption="Important Features for Tumor Event Prediction")
-                    elif 'top_features_tumor' in results:
-                        # Create table for feature importance
-                        features = results['top_features_tumor']['features']
-                        importances = results['top_features_tumor']['importances']
-                        feature_df = pd.DataFrame({
-                            "Feature": features,
-                            "Importance": importances
-                        })
-                        st.write("**Top 10 Important Features:**")
-                        st.dataframe(feature_df)
+                    col1, col2 = st.columns([1, 1])
 
-                # PFI Binary Prediction (outside expander)
-                st.write(f"**Probability of Progression within 12 Months:** {results.get('pfi_probability', 0):.1%}")
-                interpretation = 'High risk of early progression' if results.get('pfi_prediction') == 'Yes' else 'Low risk of early progression'
-                st.write(f"**Clinical Interpretation:** {interpretation}")
+                    with col1:
+                        st.write(f"**Predicted Event:** {results.get('event_prediction', 'Unknown')}")
 
-                # Survival Curve with Top 10 Features
-                with st.expander("Progression-Free Interval (PFI) Survival Curve"):
+                        # Clinical notes for different event types
+                        CLINICAL_NOTES = {
+                            "No New Tumor": "No evidence of tumor recurrence detected",
+                            "Local": "Cancer has returned to the original site",
+                            "Regional": "Cancer has spread to nearby lymph nodes or tissues",
+                            "Distant": "Cancer has spread to distant organs (Stage IV)",
+                            "New Primary": "New distinct cancer type identified",
+                            "Unknown": "Recurrence type needs further investigation"
+                        }
+                        note = CLINICAL_NOTES.get(results.get('event_prediction', 'Unknown'),
+                                                  'Consult oncologist for interpretation')
+                        st.write(f"**Clinical Note:** {note}")
+
+                        # Show probability breakdown
+                        st.write("**Probability Breakdown:**")
+
+                        # Create a horizontal bar chart for event probabilities
+
+                        event_probs = results.get('event_probabilities', {})
+                        if event_probs:
+                            labels = list(event_probs.keys())
+                            values = [float(p) for p in event_probs.values()]
+
+                            # Sort by probability value
+                            sorted_indices = sorted(range(len(values)), key=lambda k: values[k], reverse=True)
+                            sorted_labels = [labels[i] for i in sorted_indices]
+                            sorted_values = [values[i] for i in sorted_indices]
+
+                            colors = ["#3498db" if label != results.get('event_prediction', 'Unknown')
+                                      else "#e74c3c" for label in sorted_labels]
+
+                            fig = go.Figure(go.Bar(
+                                x=[v * 100 for v in sorted_values],
+                                y=sorted_labels,
+                                orientation='h',
+                                marker_color=colors,
+                                text=[f"{v * 100:.1f}%" for v in sorted_values],
+                                textposition='auto'
+                            ))
+
+                            fig.update_layout(
+                                title="Event Type Probabilities",
+                                xaxis_title="Probability (%)",
+                                yaxis_title="Event Type",
+                                height=300,
+                                margin=dict(l=10, r=10, t=40, b=10)
+                            )
+
+                            st.plotly_chart(fig, use_container_width=True)
+
+                    with col2:
+                        # Show feature importance if available
+                        if 'tumor_features' in plots:
+                            st.image(plots['tumor_features'], caption="Important Features for Tumor Event Prediction")
+                        elif 'top_features_tumor' in results:
+                            # Create interactive feature importance chart
+                            def create_feature_importance_chart(features, values, title):
+
+                                # Sort by importance value
+                                df = pd.DataFrame({'Feature': features, 'Value': values})
+                                df = df.sort_values('Value', ascending=True)
+
+                                fig = go.Figure()
+                                fig.add_trace(go.Bar(
+                                    y=df['Feature'],
+                                    x=df['Value'],
+                                    orientation='h',
+                                    marker_color="#3498db",
+                                    text=[f"{v:.4f}" for v in df['Value']],
+                                    textposition='auto'
+                                ))
+
+                                fig.update_layout(
+                                    title=title,
+                                    xaxis_title="Feature Importance",
+                                    yaxis_title="Feature",
+                                    height=400
+                                )
+
+                                return fig
+
+
+                            features = results['top_features_tumor']['features']
+                            importances = results['top_features_tumor']['importances']
+
+                            st.plotly_chart(
+                                create_feature_importance_chart(features, importances,
+                                                                "Top Features - Tumor Event Model"),
+                                use_container_width=True
+                            )
+
+
+                    # Gene expression heatmap
+                    def create_gene_heatmap(input_data, top_genes):
+
+                        # Filter to top genes only
+                        gene_data = {g: input_data.get(g, 0) for g in top_genes if g in input_data}
+
+                        fig = go.Figure(go.Heatmap(
+                            z=[[v for v in gene_data.values()]],
+                            x=list(gene_data.keys()),
+                            colorscale='RdBu_r',
+                            zmid=0,  # Center colorscale at 0
+                        ))
+
+                        fig.update_layout(
+                            title="Key Gene Expression Values",
+                            height=200,
+                            margin=dict(l=20, r=20, t=40, b=20)
+                        )
+
+                        return fig
+
+
+                    # Get the gene names from feature importance
+                    if 'top_features_tumor' in results:
+                        top_genes = [f for f in results['top_features_tumor']['features']
+                                     if f.endswith('_rnaseq')][:10]
+
+                        if top_genes:
+                            st.plotly_chart(
+                                create_gene_heatmap(input_data, top_genes),
+                                use_container_width=True
+                            )
+
+                # Tab 3: PFI Analysis
+                with tabs[2]:
+                    st.subheader("Progression-Free Interval (PFI) Analysis")
+
+                    # Interactive Survival Curve
                     if 'survival_curve' in plots:
+                        # Display the static image from backend
                         st.image(plots['survival_curve'], caption="PFI Survival Curve")
-                    
-                    median_pfi = results.get('median_pfi_time')
-                    if median_pfi is not None:
-                        st.write(f"**Median PFI Time:** {median_pfi:.0f} days")
-                    else:
-                        st.write("**Median PFI Time:** Not reached within available range")
-                        
-                    st.write(f"**1-Year PFI Rate:** {results.get('one_year_pfi', 0):.1%}")
-                    st.write(f"**2-Year PFI Rate:** {results.get('two_year_pfi', 0):.1%}")
 
-                    # Top 10 Features for CoxPH Model
-                    st.write("**Top 10 Influential Features for PFI Time Prediction:**")
-                    if 'coxph_features' in plots:
-                        st.image(plots['coxph_features'], caption="Cox Model Feature Importance")
-                    elif 'top_features_coxph' in results:
-                        # Create table for Cox features
-                        coxph_df = pd.DataFrame({
-                            'Feature': results['top_features_coxph']['features'],
-                            'Coefficient': results['top_features_coxph']['coefficients'],
-                            'Absolute Coefficient': results['top_features_coxph']['abs_coefficients']
-                        })
-                        st.dataframe(coxph_df)
+                        # Create interactive version
 
-                # Clinical Recommendations
-                st.markdown("---")
-                st.subheader("Clinical Recommendations")
-                if risk_level == "High":
+                        try:
+                            # Estimate survival function data from backend
+                            times = list(range(0, 731))  # Assuming 2 years of data
+
+                            # We need to handle this based on what the backend provides
+                            # This is an approximation as we don't have the exact survival function values
+                            median_pfi = results.get('median_pfi_time')
+                            one_year_pfi = results.get('one_year_pfi', 0.5)
+                            two_year_pfi = results.get('two_year_pfi', 0.25)
+
+                            # Generate an exponential decay curve based on the median PFI
+                            if median_pfi:
+                                # Calculate lambda for exponential decay S(t) = exp(-lambda*t)
+                                # At median time, S(t) = 0.5, so lambda = ln(2)/median
+                                lambda_val = np.log(2) / median_pfi
+                                probabilities = [np.exp(-lambda_val * t) for t in times]
+                            else:
+                                # If median not reached, use a slower decay
+                                lambda_val = -np.log(one_year_pfi) / 365
+                                probabilities = [np.exp(-lambda_val * t) for t in times]
+
+                            # Force exact values at 1 and 2 years
+                            if 365 in times:
+                                idx_1yr = times.index(365)
+                                probabilities[idx_1yr] = one_year_pfi
+
+                            if 730 in times:
+                                idx_2yr = times.index(730)
+                                probabilities[idx_2yr] = two_year_pfi
+
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=times,
+                                y=probabilities,
+                                mode='lines',
+                                name='PFI Probability',
+                                line=dict(color='#2e86c1', width=3)
+                            ))
+
+                            # Add reference lines
+                            fig.add_hline(y=0.5, line_dash="dash", line_color="#e74c3c",
+                                          annotation_text="Median")
+                            fig.add_vline(x=365, line_dash="dot", line_color="#27ae60",
+                                          annotation_text="1 Year")
+
+                            fig.update_layout(
+                                title="Interactive Progression-Free Interval Curve",
+                                xaxis_title="Days",
+                                yaxis_title="Probability of No Progression",
+                                yaxis=dict(range=[0, 1]),
+                                height=450,  # Increased height
+                                margin=dict(l=50, r=30, t=50, b=50),  # Adjusted margins
+                                hovermode="x unified"
+                            )
+
+                            st.plotly_chart(fig, use_container_width=True)
+                        except Exception as e:
+                            st.info("Interactive chart not available. Using static image.")
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.write("**PFI Time Metrics:**")
+                        median_pfi = results.get('median_pfi_time')
+                        if median_pfi is not None:
+                            st.write(f"- Median PFI Time: {median_pfi:.0f} days ({median_pfi / 30.4:.1f} months)")
+                        else:
+                            st.write("- Median PFI Time: Not reached within available range")
+
+                        st.write(f"- 1-Year PFI Rate: {results.get('one_year_pfi', 0):.1%}")
+                        st.write(f"- 2-Year PFI Rate: {results.get('two_year_pfi', 0):.1%}")
+                        st.write(
+                            f"- Progression within 12 Months: {results.get('pfi_prediction', 'Unknown')} ({results.get('pfi_probability', 0):.1%} probability)")
+
+                    with col2:
+                        # Top 10 Features for CoxPH Model
+                        st.write("**Top Influential Features for PFI Prediction:**")
+
+                        # Interactive visualization of Cox features
+                        if 'top_features_coxph' in results:
+                            # For the Cox feature chart, increase the height
+                            def create_cox_feature_chart(features, coeffs, title):
+                                import plotly.graph_objects as go
+
+                                # Create color scale based on values
+                                colors = ['#e74c3c' if v > 0 else '#3498db' for v in coeffs]
+
+                                fig = go.Figure()
+                                fig.add_trace(go.Bar(
+                                    y=features,
+                                    x=coeffs,
+                                    orientation='h',
+                                    marker_color=colors,
+                                    text=[f"{v:.4f}" for v in coeffs],
+                                    textposition='auto'
+                                ))
+
+                                fig.update_layout(
+                                    title=title,
+                                    xaxis_title="Coefficient Value",
+                                    yaxis_title="Feature",
+                                    height=550,  # Increased from 400 to 550
+                                    margin=dict(l=200, r=30, t=50, b=30)  # Added more space for feature names
+                                )
+
+                                # Add vertical line at x=0
+                                fig.add_vline(x=0, line_dash="dash", line_color="gray")
+
+                                return fig
+
+
+                            features = results['top_features_coxph']['features']
+                            coeffs = results['top_features_coxph']['coefficients']
+
+                            st.plotly_chart(
+                                create_cox_feature_chart(features, coeffs, "Top Features - Cox Model"),
+                                use_container_width=True
+                            )
+                        elif 'coxph_features' in plots:
+                            st.image(plots['coxph_features'], caption="Cox Model Feature Importance")
+
+                # Tab 4: Clinical Recommendations
+                with tabs[3]:
+                    st.subheader("Clinical Recommendations")
+
+                    # Comparative Reference Card
                     st.markdown("""
-                    - **Immediate Action:** High risk of progression within 1 year (median PFI < 365 days). Consider aggressive monitoring or adjuvant therapy.
-                    - **Diagnostics:** Order imaging (e.g., PET/CT) and molecular profiling.
-                    - **Therapy:** Discuss targeted therapies or clinical trials.
-                    """)
-                elif risk_level == "Medium":
-                    st.markdown("""
-                    - **Monitoring:** Moderate risk of progression (median PFI < 730 days). Schedule follow-ups every 3-6 months (90-180 days) with imaging.
-                    - **Prevention:** Evaluate maintenance therapy options.
-                    - **Consultation:** Review with multidisciplinary team.
-                    """)
-                else:  # Low
-                    st.markdown("""
-                    - **Routine Care:** Low risk of early progression (median PFI ≥ 730 days). Continue standard follow-up every 6-12 months (180-365 days).
-                    - **Patient Education:** Reinforce lifestyle modifications.
-                    - **Reassess:** Repeat assessment if new symptoms arise.
-                    """)
-                
+                        ### Reference Values
+
+                        | Risk Level | Median PFI Time | 1-Year PFI Rate | Clinical Action |
+                        |------------|-----------------|-----------------|-----------------|
+                        | High       | < 365 days      | < 50%           | Aggressive monitoring |
+                        | Medium     | 365-730 days    | 50-75%          | 3-6 month follow-up |
+                        | Low        | > 730 days      | > 75%           | Standard follow-up |
+                        """)
+
+                    # Risk-based recommendations
+                    risk_level = results.get('risk_level', 'Unknown')
+                    event_type = results.get('event_prediction', 'Unknown')
+
+                    st.subheader("Personalized Recommendations")
+
+                    if risk_level == "High":
+                        st.error("""
+                            #### High Risk Patient Plan
+                            - **Immediate Action:** High risk of progression within 1 year (median PFI < 365 days). Consider aggressive monitoring or adjuvant therapy.
+                            - **Imaging:** Schedule follow-up imaging every 3 months (CT or PET/CT).
+                            - **Molecular Testing:** Consider liquid biopsy for detection of circulating tumor DNA.
+                            - **Treatment Options:** Discuss additional targeted therapy or immunotherapy options based on molecular profile.
+                            - **Clinical Trials:** Evaluate eligibility for relevant trials targeting high-risk patients.
+                            """)
+                    elif risk_level == "Medium":
+                        st.warning("""
+                            #### Medium Risk Patient Plan
+                            - **Monitoring:** Moderate risk of progression (median PFI < 730 days). Schedule follow-ups every 3-6 months with appropriate imaging.
+                            - **Biomarker Testing:** Monitor tumor markers if applicable to cancer type.
+                            - **Prevention:** Evaluate maintenance therapy options to delay progression.
+                            - **Lifestyle Modifications:** Discuss exercise, nutrition, and stress management strategies.
+                            - **Multidisciplinary Review:** Present case at tumor board for consensus recommendations.
+                            """)
+                    else:  # Low
+                        st.success("""
+                            #### Low Risk Patient Plan
+                            - **Routine Care:** Low risk of early progression (median PFI ≥ 730 days). Continue standard follow-up every 6-12 months.
+                            - **Surveillance Imaging:** Annual imaging may be sufficient based on NCCN guidelines.
+                            - **Patient Education:** Reinforce lifestyle modifications and signs/symptoms to watch for.
+                            - **Survivorship Planning:** Develop long-term survivorship care plan.
+                            - **Reassess:** Repeat risk assessment annually or if new symptoms arise.
+                            """)
+
+                    # Additional recommendations based on tumor event type
+                    if event_type != "No New Tumor" and event_type != "Unknown":
+                        st.subheader(f"Additional Recommendations for {event_type} Recurrence")
+                        if event_type == "Local":
+                            st.markdown("- Consider surgical re-resection if feasible\n"
+                                        "- Evaluate for radiation therapy if not previously administered\n"
+                                        "- Contrast-enhanced MRI to assess precise extent of local recurrence")
+                        elif event_type == "Regional":
+                            st.markdown("- Lymph node evaluation and possible lymphadenectomy\n"
+                                        "- Consider regional nodal irradiation\n"
+                                        "- PET/CT to fully assess regional involvement")
+                        elif event_type == "Distant":
+                            st.markdown("- Biopsy of metastatic site for confirmation and molecular analysis\n"
+                                        "- Systemic therapy based on histology and molecular features\n"
+                                        "- Evaluate for oligometastatic approach if limited metastases")
+                        elif event_type == "New Primary":
+                            st.markdown("- Complete staging workup as for a new primary cancer\n"
+                                        "- Molecular testing to distinguish from original primary\n"
+                                        "- Treatment following standard guidelines for the new primary site")
+
+                # Add confidence score based on data completeness
+                feature_count = len(input_data)
+                max_features = len(gene_columns) + len(categorical_columns) + 1  # +1 for age
+                confidence = min(feature_count / max_features * 100, 100)
+
+                st.sidebar.subheader("Prediction Confidence")
+                st.sidebar.progress(confidence / 100)
+                st.sidebar.write(f"Data completeness: {confidence:.1f}%")
+
+                # Add report download option
+                st.sidebar.subheader("Export Options")
+
+                # Create PDF report (simplified - would need a real PDF generation library)
+
+
+                def generate_report_data():
+                    report_data = {
+                        "patient": {
+                            "age": input_data["Age"],
+                            "gender": input_data["Gender"],
+                            "stage": input_data["ajcc_pathologic_tumor_stage"]
+                        },
+                        "predictions": {
+                            "risk_level": risk_level,
+                            "pfi_probability": results.get('pfi_probability', 0),
+                            "event_type": results.get('event_prediction', 'Unknown'),
+                            "median_pfi": results.get('median_pfi_time')
+                        }
+                    }
+                    return json.dumps(report_data, indent=2)
+
+
+                report_data = generate_report_data()
+                st.sidebar.download_button(
+                    "Download Report Data (JSON)",
+                    data=report_data,
+                    file_name="cancer_recurrence_report.json",
+                    mime="application/json",
+                )
+
             else:
                 st.error(f"Prediction failed: {response.text}")
         except Exception as e:

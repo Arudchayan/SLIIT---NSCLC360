@@ -2,8 +2,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
 import matplotlib.pyplot as plt
-import base64
-from io import BytesIO
 import joblib
 import numpy as np
 import seaborn as sns
@@ -510,31 +508,39 @@ def recurrence():
         # Survival curve
         fig, ax = plt.subplots(figsize=(10, 6))
         survival_function.plot(ax=ax, color="#2e86c1", linewidth=2.5)
+
+        # Add more detailed annotations
         ax.axhline(0.5, color='#e74c3c', linestyle='--', alpha=0.7, label='Median (50%)')
         ax.axvline(365, color='#27ae60', linestyle=':', alpha=0.7, label='1 Year')
         ax.axvline(730, color='#f1c40f', linestyle=':', alpha=0.7, label='2 Years')
+
+        # Add confidence regions if available (this would need to be implemented)
+        # survival_function_lower.plot(ax=ax, color="#2e86c1", linewidth=1, linestyle='--', alpha=0.3)
+        # survival_function_upper.plot(ax=ax, color="#2e86c1", linewidth=1, linestyle='--', alpha=0.3)
+
+        # Show key probability points
+        if median_pfi_numeric:
+            ax.plot([median_pfi_numeric], [0.5], 'ro', markersize=8)
+            ax.annotate(f'Median: {median_pfi_numeric:.0f} days',
+                        xy=(median_pfi_numeric, 0.5),
+                        xytext=(median_pfi_numeric + 60, 0.55),
+                        arrowprops=dict(arrowstyle='->'))
+
+        ax.plot([365], [one_year_pfi], 'go', markersize=8)
+        ax.annotate(f'1Y PFI: {one_year_pfi:.0%}',
+                    xy=(365, one_year_pfi),
+                    xytext=(365 - 120, one_year_pfi + 0.1),
+                    arrowprops=dict(arrowstyle='->'))
+
+        # Enhanced styling
         ax.grid(True, linestyle='--', alpha=0.3)
         ax.set_title("PFI Survival Curve", fontsize=14, fontweight='bold')
         ax.set_xlabel("Time (Days)", fontsize=12)
         ax.set_ylabel("Progression-Free Probability", fontsize=12)
         ax.set_ylim(0, 1)
-        ax.legend()
+        ax.legend(loc='lower left')
+        plt.tight_layout()
         plots['survival_curve'] = fig_to_base64(fig)
-        plt.close(fig)
-        
-        # Feature importance plot for CoxPH model
-        fig, ax = plt.subplots(figsize=(10, 6))
-        features = top_10_features_coxph.index.tolist()
-        coeffs = top_10_features_coxph['coef'].tolist()
-        colors = ['red' if coef > 0 else 'blue' for coef in coeffs]
-        ax.barh(features, coeffs, color=colors)
-        ax.set_xlabel("Coefficient Value", fontsize=12)
-        ax.set_ylabel("Feature Name", fontsize=12)
-        ax.set_title("Top Features - Cox Model", fontsize=14)
-        ax.axvline(x=0, color='gray', linestyle='--', linewidth=1)
-        ax.grid(axis='x', linestyle='--', alpha=0.7)
-        ax.invert_yaxis()
-        plots['coxph_features'] = fig_to_base64(fig)
         plt.close(fig)
         
         # Feature importance for tumor event if available

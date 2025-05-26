@@ -13,3 +13,4 @@ tensorflow
 pydicom
 scikit-image
 tqdm
+plotly>=5.13.0
