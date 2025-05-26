@@ -211,7 +211,7 @@ elif page == "Complications":
 
         fig, ax = plt.subplots(figsize=(8, 5))
         ax.barh(features[::-1], importances[::-1], color='steelblue')  # Reverse to show top at top
-        ax.set_xlabel("Importance (Sum = 0.7)")
+        ax.set_xlabel("Importance (Sum = 1.0)")
         ax.set_title("Random Feature Importance")
         plt.tight_layout()
         return fig
@@ -299,63 +299,44 @@ elif page == "Complications":
                 top_5 = data.get('top_5_complications', [])
 
                 with st.container():
-                    col1, col2, col3 = st.columns([1, 3, 1])
-                    with col2:
-                        st.markdown("---")
-                        with st.expander("### Prediction Results", expanded=True):
-                            st.markdown(f"""
-                            **Severity:**  
-                            <span style="color: #2e86c1; font-size: 20px">{pred_catl}</span>  
-                            
-                            **Complication Type:**  
-                            <span style="color: #2e86c1; font-size: 20px">{pred_ctypel}</span>  
-                            
-                            **Treatment Timing:**  
-                            <span style="color: #2e86c1; font-size: 20px">{pred_gap}</span>
-                            """, unsafe_allow_html=True)
+                    st.markdown("---")
+                    with st.expander("### 🩺 Prediction Results", expanded=True):
+                        st.markdown(f"""
+                        **🔴 Severity:**  <span style="color: #2e86c1; font-size: 20px">{pred_catl}</span>  
+                        
+                        **⚕️ Complication Type:**  <span style="color: #2e86c1; font-size: 20px">{pred_ctypel}</span>  
+                        
+                        **⏳ Treatment Timing:**  <span style="color: #2e86c1; font-size: 20px">{pred_gap}</span>
+                        """, unsafe_allow_html=True)
 
-                        st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
 
-                        st.markdown("### Top 5 Complication Probabilities")
-                        for comp in top_5:
-                            st.markdown(f"""
-                            <div style="padding: 10px; border-radius: 5px; margin: 5px 0; 
-                                        background-color: black; border-left: 4px solid #2e86c1">
-                                <strong>{comp['complication']}:</strong> {comp['probability']*100:.2f}%
-                            </div>
-                            """, unsafe_allow_html=True)
+                    st.markdown("### 📊 Top 5 Complication Probabilities")
+                    for comp in top_5:
+                        st.markdown(f"""
+                        <div style="padding: 10px; border-radius: 5px; margin: 5px 0; 
+                                    background-color: black; border-left: 4px solid #2e86c1">
+                            <strong>⚠️ {comp['complication']}:</strong> {comp['probability']*100:.2f}%
+                        </div>
+                        """, unsafe_allow_html=True)
 
-                        st.markdown("---")
+                    st.markdown("---")
 
-                        # Save the current prediction and inputs to history
+                    # Save the current prediction and inputs to history
                     save_to_history(inputs, {
                         "severity": pred_catl,
                         "complication_type": pred_ctypel,
                         "treatment_timing": pred_gap
-                        })
-                
-                        # Display history table
+                    })
+
+                    # Display history table
                     if "history" in st.session_state and len(st.session_state.history) > 0:
-                        st.subheader("Prediction History")
+                        st.subheader("📚 Prediction History")
                         history_df = pd.DataFrame(st.session_state.history)
-                        st.dataframe(history_df)  # You can use st.table(history_df) if you prefer a simple table
-    
-
-                
-                    # Display the Feature Importance plot
-                    #display_feature_importance_plot(data["feature_importance_plot"])
-
-
-                    # if 'feature_importance_data' in data:
-                    #     st.subheader("Feature Importance")
-                    #     importance_df = pd.DataFrame(data['feature_importance_data'])
-                    #     st.table(importance_df)  # or use st.dataframe(importance_df) for interactive table
-
-                    # # Prepare response
-                    # feature_importance_data = [{"feature": f, "importance": imp} for f, imp in sorted_importance]
+                        st.dataframe(history_df)  # or st.table(history_df)
 
                     # Display the random feature importance table
-                    st.subheader("Feature Importance")
+                    st.subheader("🌟 Feature Importance")
                     st.table(importance_df2)  # Display the random feature importance table
 
                     # Generate the plot figure
@@ -363,7 +344,7 @@ elif page == "Complications":
 
                     # Display in Streamlit
                     st.pyplot(fig)
-                        
+                            
                         
             else:
                 st.error(f"Prediction failed: {response.text}")
