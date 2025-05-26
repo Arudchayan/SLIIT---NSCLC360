@@ -8,6 +8,11 @@ import joblib
 import numpy as np
 import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler
+from io import BytesIO
+import base64
+import traceback
+import matplotlib
+matplotlib.use('Agg')# Use the Agg backend for Matplotlib (non-GUI)
 
 # Initialize Flask app and enable CORS
 app = Flask(__name__)
@@ -22,6 +27,28 @@ model_ctypel = joblib.load("models/tabnet_ctypel.pkl")
 model_comp_gap_category = joblib.load("models/tabnet_trt_cat.pkl")
 
 
+# Feature Importance Plot function
+def plot_feature_importance(model, feature_names):
+    importances = model.feature_importances_
+    indices = np.argsort(importances)[::-1]
+    top_features = [feature_names[i] for i in indices[:10]]
+    top_importances = importances[indices[:10]]
+
+    # Plot the feature importance
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x=top_importances, y=top_features, palette='viridis')
+    plt.title('Feature Importance - model_ctypel', fontsize=16)
+    plt.xlabel('Importance', fontsize=12)
+    plt.ylabel('Feature', fontsize=12)
+    plt.tight_layout()
+    
+    # Convert the plot to base64 for front-end display
+    buf = BytesIO()
+    plt.savefig(buf, format='png')
+    buf.seek(0)
+    img_bytes = buf.getvalue()
+    base64_image = base64.b64encode(img_bytes).decode('utf-8')
+    return f"data:image/png;base64,{base64_image}"
 
 
 
@@ -241,12 +268,17 @@ def complications():
         top_5_indices = np.argsort(pred_ctypel_proba)[-5:][::-1]
         
         top_5 = [{"complication": inv_ctypel_mapping[i], "probability": float(pred_ctypel_proba[i])} for i in top_5_indices]
+
+         # Generate Feature Importance plot for model_ctypel
+        feature_importance_image = plot_feature_importance(model_ctypel, input_df.columns)
+
         
         response = {
             "severity": ctype_catl_mapping.get(pred_catl, "Unknown"),
             "complication_type": inv_ctypel_mapping.get(pred_ctypel, "Unknown"),
             "treatment_timing": comp_gap_category_mapping.get(pred_gap, "Unknown"),
-            "top_5_complications": top_5
+            "top_5_complications": top_5,
+            "feature_importance_plot": feature_importance_image
         }
         return jsonify(response)
     except Exception as e:
