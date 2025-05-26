@@ -8,6 +8,8 @@ import base64
 import random
 from io import BytesIO
 import json
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 
 # Sidebar for navigation
 page = st.sidebar.selectbox(
@@ -17,6 +19,57 @@ page = st.sidebar.selectbox(
 
 # Base URL for Flask backend
 BACKEND_URL = "http://localhost:5000"
+
+
+def plot_lung_with_tumor(tumor_location):
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.set_title("Lung Lobes with Tumor Location Highlighted", fontsize=16)
+    ax.axis('off')
+
+    # Draw lung outlines (simplified shapes)
+    left_lung = patches.FancyBboxPatch((0.1, 0.2), 0.35, 0.6,
+                                       boxstyle="round,pad=0.05",
+                                       edgecolor='navy', facecolor='#d0e7ff', linewidth=2)
+    ax.add_patch(left_lung)
+
+    right_lung = patches.FancyBboxPatch((0.55, 0.2), 0.35, 0.6,
+                                        boxstyle="round,pad=0.05",
+                                        edgecolor='navy', facecolor='#d0e7ff', linewidth=2)
+    ax.add_patch(right_lung)
+
+    # Lobes with approximate center positions
+    lobes = {
+        "L Lingula": (0.15, 0.55),
+        "LLL": (0.27, 0.4),
+        "LUL": (0.27, 0.7),
+        "RLL": (0.70, 0.4),
+        "RML": (0.70, 0.55),
+        "RUL": (0.70, 0.7)
+    }
+
+    for lobe, (x, y) in lobes.items():
+        if lobe == tumor_location:
+            color = 'red'
+            alpha = 0.9
+            size = 0.12
+            edge = 'darkred'
+        else:
+            color = 'gray'
+            alpha = 0.3
+            size = 0.1
+            edge = 'black'
+
+        circle = patches.Circle((x, y), size, facecolor=color, alpha=alpha, edgecolor=edge, linewidth=2)
+        ax.add_patch(circle)
+        ax.text(x, y, lobe, fontsize=12, ha='center', va='center', weight='bold', color='black')
+
+    # Legend
+    ax.plot([], [], marker='o', color='red', label='Tumor Location', linestyle='None')
+    ax.plot([], [], marker='o', color='gray', alpha=0.3, label='Other Lobes', linestyle='None')
+    ax.legend(loc='lower center', ncol=2, fontsize=12)
+
+    return fig
+
 
 # Minimal frontend: upload file and send to backend for predictions
 if page == "Prognosis":
@@ -44,6 +97,8 @@ if page == "Prognosis":
         except Exception as e:
             st.error(f"Error connecting to backend: {e}")
 
+
+
 elif page == "Detection":
     st.title("Tumor Analysis")
     uploaded_zip = st.file_uploader("Upload zipped DICOM folder", type=["zip"])
@@ -57,7 +112,6 @@ elif page == "Detection":
                 result = response.json()
 
                 st.subheader("Predictions:")
-                # Output the results
                 pred_t_label = result.get('T', 'N/A')
                 pred_n_label = result.get('N', 'N/A')
                 pred_m_label = result.get('M', 'N/A')
@@ -69,7 +123,7 @@ elif page == "Detection":
                 st.write(f"M Stage: {pred_m_label}")
                 st.write(f"Tumor Location: {pred_loc_label}")
 
-                # Explanation for each prediction
+                # Explanations for each
                 t_stage_explanation = {
                     "T1a": "This means the tumor size is small, confined to a specific area of the lung.",
                     "T1b": "This means the tumor size is moderate but still confined to the lung area.",
@@ -102,13 +156,18 @@ elif page == "Detection":
                     "RUL": "The tumor is located in the right upper lobe of the right lung."
                 }
 
-                # Add explanations for T, N, M stages
-                st.write(f"**T Stage Explanation:** {t_stage_explanation.get(pred_t_label, 'No explanation available for this stage.')}")
-                st.write(f"**N Stage Explanation:** {n_stage_explanation.get(pred_n_label, 'No explanation available for this stage.')}")
-                st.write(f"**M Stage Explanation:** {m_stage_explanation.get(pred_m_label, 'No explanation available for this stage.')}")
-                st.write(f"**Tumor Location Explanation:** {location_explanation.get(pred_loc_label, 'No explanation available for this location.')}")
+                # Show explanations
+                st.write(f"**T Stage Explanation:** {t_stage_explanation.get(pred_t_label, 'No explanation available.')}")
+                st.write(f"**N Stage Explanation:** {n_stage_explanation.get(pred_n_label, 'No explanation available.')}")
+                st.write(f"**M Stage Explanation:** {m_stage_explanation.get(pred_m_label, 'No explanation available.')}")
+                st.write(f"**Tumor Location Explanation:** {location_explanation.get(pred_loc_label, 'No explanation available.')}")
 
-                # Provide a summary section at the end
+                # Plot lung and highlight tumor location
+                if pred_loc_label in location_explanation:
+                    fig = plot_lung_with_tumor(pred_loc_label)
+                    st.pyplot(fig)
+
+                # Summary
                 summary_text = (
                     f"**What this means for you:**\n\n"
                     f"Based on your scan and clinical data, your tumor size and spread are currently at stage **{pred_t_label}{pred_n_label}{pred_m_label}**. "
@@ -117,7 +176,6 @@ elif page == "Detection":
                     f"Your tumor is located in the **{pred_loc_label}** of your lung, which means {location_explanation.get(pred_loc_label, '').lower()}.\n\n"
                     f"Regular monitoring and following your doctor’s advice is important."
                 )
-
                 st.markdown("---")
                 st.header("Summary")
                 st.write(summary_text)
@@ -251,7 +309,7 @@ elif page == "Complications":
 
      # List of features (replace with actual features from your model)
     features = [
-        "Age", "Gender", "BMI", "Smoking Status", "Clinical Trial Participation", 
+        "Age", "Gender", "BMI", "Smoking Status", "Clinical Trial Participation",
         "Diabetes Status", "Hypertension Status", "Emphysema", "Chronic Bronchitis", "Heart Disease"
     ]
 
@@ -259,7 +317,7 @@ elif page == "Complications":
     def generate_random_feature_importance(features, total_importance=0.85):
         importance_values = [round(random.uniform(0.1, 0.001), 4) for _ in range(len(features))]
         feature_importance = list(zip(features, importance_values))
-        
+
         # Sort the list by importance values in descending order
         sorted_importance = sorted(feature_importance, key=lambda x: x[1], reverse=True)
         return sorted_importance
@@ -410,8 +468,8 @@ elif page == "Complications":
 
                     # Display in Streamlit
                     st.pyplot(fig)
-                            
-                        
+
+
             else:
                 st.error(f"Prediction failed: {response.text}")
         except Exception as e:
