@@ -4,6 +4,9 @@ import pandas as pd
 import numpy as np
 import json
 import matplotlib.pyplot as plt
+from PIL import Image
+import base64
+from io import BytesIO
 
 # Sidebar for navigation
 page = st.sidebar.selectbox(
@@ -57,10 +60,11 @@ elif page == "Detection":
             st.error(f"Error connecting to backend: {e}")
 
 elif page == "Complications":
-    st.title("Lung Cancer Complication Predictor")
-    st.write("Predicts complication severity, type, and treatment timing")
+    st.markdown("<h1 class='stTitle'>🌟 Lung Cancer Complication Predictor</h1>", unsafe_allow_html=True)
+    st.write("This application predicts the severity, type, and treatment timing of lung cancer complications based on input data.")
 
-        # Custom CSS styling for the Predict button
+
+    # Custom CSS styling for the Predict button
     st.markdown("""
     <style>
         .stButton>button {
@@ -92,8 +96,6 @@ elif page == "Complications":
     </style>
     """, unsafe_allow_html=True)
 
-
-    # Define mappings for your selectboxes
     mappings = {
         'sex': ['Female', 'Male'],
         'bmi_curc': ['0-18.5', '18.5-25', '25-30', '30+'],
@@ -141,51 +143,116 @@ elif page == "Complications":
         'neoadjuvant': ['Neoadjuvant', 'Not neoadjuvant']
     }
 
-    # Collect user inputs
-    inputs = {}
 
+    # Function to decode and display the base64 image from the backend
+    def display_feature_importance_plot(image_base64):
+        img_data = base64.b64decode(image_base64.split(',')[1])  # Decode the base64 image data
+        img = Image.open(BytesIO(img_data))
+        st.image(img, caption="Feature Importance Plot for model_ctypel", use_column_width=True)
+
+
+
+    # Create a function to save input-output history
+    def save_to_history(inputs, predictions):
+        # If the history doesn't exist, initialize it
+        if "history" not in st.session_state:
+            st.session_state.history = []
+
+        # Append the current input, output, and top 5 predictions to the history
+        st.session_state.history.append({
+            "Inputs": inputs,
+            "Severity": predictions.get('severity', 'Unknown'),
+            "Complication Type": predictions.get('complication_type', 'Unknown'),
+            "Treatment Timing": predictions.get('treatment_timing', 'Unknown')
+        })
+
+    # Generate random inputs function
+    def generate_random_inputs():
+        rand_inputs = {}
+        rand_inputs['age'] = np.random.randint(20, 90)
+        for key, options in mappings.items():
+            if key != 'age' and key != 'pack_years':
+                rand_inputs[key] = np.random.choice(options)
+        rand_inputs['pack_years'] = round(np.random.uniform(0, 50), 2)
+        return rand_inputs
+
+    # Generate random inputs on button click and store in session state
+    if st.button("Generate Random Values"):
+        st.session_state['complication_inputs'] = generate_random_inputs()
+
+    # Load inputs from session or initialize empty dict
+    inputs = st.session_state.get('complication_inputs', {})
+
+    # Input form with prefilled or empty values
     col1, col2 = st.columns(2)
     with col1:
-        inputs['age'] = st.number_input("Age", min_value=0, max_value=120, value=50)
-        inputs['sex'] = st.selectbox("Sex", mappings['sex'])
-        inputs['bmi_curc'] = st.selectbox("BMI Category", mappings['bmi_curc'])
-        inputs['cig_stat'] = st.selectbox("Smoking Status", mappings['cig_stat'])
-        inputs['pack_years'] = st.number_input("Pack Years", min_value=0.0, value=0.0)
-        inputs['ph_any_trial'] = st.selectbox("Clinical Trial Participation", mappings['ph_any_trial'])
-        inputs['diabetes_f'] = st.selectbox("Diabetes", mappings['diabetes_f'])
-        inputs['hyperten_f'] = st.selectbox("Hypertension", mappings['hyperten_f'])
+        age = st.number_input("Age", min_value=0, max_value=120, value=inputs.get('age', 50))
+        sex = st.selectbox("Sex", mappings['sex'], index=mappings['sex'].index(inputs.get('sex', 'Female')))
+        bmi_curc = st.selectbox("BMI Category", mappings['bmi_curc'], index=mappings['bmi_curc'].index(inputs.get('bmi_curc', '18.5-25')))
+        cig_stat = st.selectbox("Smoking Status", mappings['cig_stat'], index=mappings['cig_stat'].index(inputs.get('cig_stat', 'Never Smoked Cigarettes')))
+        pack_years = st.number_input("Pack Years", min_value=0.0, value=inputs.get('pack_years', 0.0))
+        ph_any_trial = st.selectbox("Clinical Trial Participation", mappings['ph_any_trial'], index=mappings['ph_any_trial'].index(inputs.get('ph_any_trial', 'No')))
+        diabetes_f = st.selectbox("Diabetes", mappings['diabetes_f'], index=mappings['diabetes_f'].index(inputs.get('diabetes_f', 'No')))
+        hyperten_f = st.selectbox("Hypertension", mappings['hyperten_f'], index=mappings['hyperten_f'].index(inputs.get('hyperten_f', 'No')))
 
     with col2:
-        inputs['emphys_f'] = st.selectbox("Emphysema", mappings['emphys_f'])
-        inputs['bronchit_f'] = st.selectbox("Chronic Bronchitis", mappings['bronchit_f'])
-        inputs['hearta_f'] = st.selectbox("Heart Disease", mappings['hearta_f'])
-        inputs['proc_numl'] = st.selectbox("Procedure Type", mappings['proc_numl'])
-        inputs['del_invas_cat'] = st.selectbox("Diagnostic Method", mappings['del_invas_cat'])
-        inputs['biop'] = st.selectbox("Biopsy Performed", mappings['biop'])
-        inputs['biopllink0'] = st.selectbox("Biopsy Linked", mappings['biopllink0'])
-        inputs['reasfolll'] = st.selectbox("Follow-up Required", mappings['reasfolll'])
+        emphys_f = st.selectbox("Emphysema", mappings['emphys_f'], index=mappings['emphys_f'].index(inputs.get('emphys_f', 'No')))
+        bronchit_f = st.selectbox("Chronic Bronchitis", mappings['bronchit_f'], index=mappings['bronchit_f'].index(inputs.get('bronchit_f', 'No')))
+        hearta_f = st.selectbox("Heart Disease", mappings['hearta_f'], index=mappings['hearta_f'].index(inputs.get('hearta_f', 'No')))
+        proc_numl = st.selectbox("Procedure Type", mappings['proc_numl'], index=mappings['proc_numl'].index(inputs.get('proc_numl', 'Biopsy & Cytology')))
+        del_invas_cat = st.selectbox("Diagnostic Method", mappings['del_invas_cat'], index=mappings['del_invas_cat'].index(inputs.get('del_invas_cat', 'Bronchoscopy with biopsy')))
+        biop = st.selectbox("Biopsy Performed", mappings['biop'], index=mappings['biop'].index(inputs.get('biop', 'No')))
+        biopllink0 = st.selectbox("Biopsy Linked", mappings['biopllink0'], index=mappings['biopllink0'].index(inputs.get('biopllink0', 'No')))
+        reasfolll = st.selectbox("Follow-up Required", mappings['reasfolll'], index=mappings['reasfolll'].index(inputs.get('reasfolll', 'No')))
 
     col3, col4 = st.columns(2)
     with col3:
         st.subheader("Cancer Staging")
-        inputs['lung_stage'] = st.selectbox("Overall Stage", mappings['lung_stage'])
-        inputs['lung_clinstage'] = st.selectbox("Clinical Stage", mappings['lung_clinstage'])
-        inputs['lung_stage_t'] = st.selectbox("T Stage", mappings['lung_stage_t'])
-        inputs['lung_stage_n'] = st.selectbox("N Stage", mappings['lung_stage_n'])
-        inputs['lung_stage_m'] = st.selectbox("M Stage", mappings['lung_stage_m'])
+        lung_stage = st.selectbox("Overall Stage", mappings['lung_stage'], index=mappings['lung_stage'].index(inputs.get('lung_stage', 'Stage IA')))
+        lung_clinstage = st.selectbox("Clinical Stage", mappings['lung_clinstage'], index=mappings['lung_clinstage'].index(inputs.get('lung_clinstage', 'Occult Carcinoma')))
+        lung_stage_t = st.selectbox("T Stage", mappings['lung_stage_t'], index=mappings['lung_stage_t'].index(inputs.get('lung_stage_t', 'T1')))
+        lung_stage_n = st.selectbox("N Stage", mappings['lung_stage_n'], index=mappings['lung_stage_n'].index(inputs.get('lung_stage_n', 'N0')))
+        lung_stage_m = st.selectbox("M Stage", mappings['lung_stage_m'], index=mappings['lung_stage_m'].index(inputs.get('lung_stage_m', 'M0')))
 
     with col4:
         st.subheader("Treatment Details")
-        inputs['lung_histtype_cat'] = st.selectbox("Histology Type", mappings['lung_histtype_cat'])
-        inputs['trt_familyl'] = st.selectbox("Treatment Category", mappings['trt_familyl'])
-        inputs['trt_numl'] = st.selectbox("Specific Treatment", mappings['trt_numl'])
-        inputs['neoadjuvant'] = st.selectbox("Neoadjuvant Therapy", mappings['neoadjuvant'])
+        lung_histtype_cat = st.selectbox("Histology Type", mappings['lung_histtype_cat'], index=mappings['lung_histtype_cat'].index(inputs.get('lung_histtype_cat', 'Adenocarcinoma')))
+        trt_familyl = st.selectbox("Treatment Category", mappings['trt_familyl'], index=mappings['trt_familyl'].index(inputs.get('trt_familyl', 'Chemotherapy')))
+        trt_numl = st.selectbox("Specific Treatment", mappings['trt_numl'], index=mappings['trt_numl'].index(inputs.get('trt_numl', 'Bilobectomy')))
+        neoadjuvant = st.selectbox("Neoadjuvant Therapy", mappings['neoadjuvant'], index=mappings['neoadjuvant'].index(inputs.get('neoadjuvant', 'Neoadjuvant')))
+
+    input_data = {
+        'age': age,
+        'sex': sex,
+        'bmi_curc': bmi_curc,
+        'cig_stat': cig_stat,
+        'pack_years': pack_years,
+        'ph_any_trial': ph_any_trial,
+        'diabetes_f': diabetes_f,
+        'hyperten_f': hyperten_f,
+        'emphys_f': emphys_f,
+        'bronchit_f': bronchit_f,
+        'hearta_f': hearta_f,
+        'proc_numl': proc_numl,
+        'del_invas_cat': del_invas_cat,
+        'biop': biop,
+        'biopllink0': biopllink0,
+        'reasfolll': reasfolll,
+        'lung_stage': lung_stage,
+        'lung_clinstage': lung_clinstage,
+        'lung_stage_t': lung_stage_t,
+        'lung_stage_n': lung_stage_n,
+        'lung_stage_m': lung_stage_m,
+        'lung_histtype_cat': lung_histtype_cat,
+        'trt_familyl': trt_familyl,
+        'trt_numl': trt_numl,
+        'neoadjuvant': neoadjuvant
+    }
 
     if st.button("Predict"):
         try:
             import requests
-            # Send all input fields as JSON to backend
-            response = requests.post("http://localhost:5000/complications", json=inputs)
+            response = requests.post("http://localhost:5000/complications", json=input_data)
             if response.ok:
                 data = response.json()
 
@@ -194,7 +261,6 @@ elif page == "Complications":
                 pred_gap = data.get('treatment_timing', 'Unknown')
                 top_5 = data.get('top_5_complications', [])
 
-                # Styled display of prediction results
                 with st.container():
                     col1, col2, col3 = st.columns([1, 3, 1])
                     with col2:
@@ -221,12 +287,32 @@ elif page == "Complications":
                                 <strong>{comp['complication']}:</strong> {comp['probability']*100:.2f}%
                             </div>
                             """, unsafe_allow_html=True)
-                        
+
                         st.markdown("---")
+
+                        # Save the current prediction and inputs to history
+                    save_to_history(inputs, {
+                        "severity": pred_catl,
+                        "complication_type": pred_ctypel,
+                        "treatment_timing": pred_gap
+                        })
+                
+                        # Display history table
+                    if "history" in st.session_state and len(st.session_state.history) > 0:
+                        st.subheader("Prediction History")
+                        history_df = pd.DataFrame(st.session_state.history)
+                        st.dataframe(history_df)  # You can use st.table(history_df) if you prefer a simple table
+    
+
+                
+                    # Display the Feature Importance plot
+                    display_feature_importance_plot(data["feature_importance_plot"])
+                        
             else:
                 st.error(f"Prediction failed: {response.text}")
         except Exception as e:
             st.error(f"Error connecting to backend: {e}")
+
 
 
     
