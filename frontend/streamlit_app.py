@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import json
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 # Sidebar for navigation
 page = st.sidebar.selectbox(
@@ -14,10 +15,6 @@ page = st.sidebar.selectbox(
 # Base URL for Flask backend
 BACKEND_URL = "http://localhost:5000"
 
-import streamlit as st
-import requests
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
 def plot_lung_with_tumor(tumor_location):
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -94,6 +91,7 @@ if page == "Prognosis":
                 st.error(f"Prediction failed: {response.text}")
         except Exception as e:
             st.error(f"Error connecting to backend: {e}")
+
 
 
 elif page == "Detection":
